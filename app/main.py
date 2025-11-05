@@ -31,6 +31,7 @@ m = None
 
 
 def _read_serial_ack() -> List[str]:
+    """Read acknowledgement lines from the serial port within the timeout window."""
     if ser is None or SERIAL_ACK_TIMEOUT <= 0:
         return []
 
