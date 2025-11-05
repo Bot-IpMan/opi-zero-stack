@@ -1,26 +1,82 @@
 from contextlib import asynccontextmanager
-import os, time, json
-from typing import List, Optional
+import json
+import logging
+import os
+import time
+from typing import List
+
+import numpy as np
+import paho.mqtt.client as mqtt
+import serial
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
-import serial
-import paho.mqtt.client as mqtt
-import numpy as np
 
 MODEL_PATH = os.getenv("MODEL_PATH", "/app/model.tflite")
 SERIAL_DEV = os.getenv("SERIAL_DEV", "/dev/ttyACM0")
 USE_DUMMY = os.getenv("DUMMY_MODEL", "0") == "1"
+
+LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
+logging.basicConfig(
+    level=getattr(logging, LOG_LEVEL, logging.INFO),
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+)
+log = logging.getLogger("opi_zero_app")
+
+SERIAL_ACK_TIMEOUT = float(os.getenv("SERIAL_ACK_TIMEOUT", "0.75"))
+SERIAL_ACK_POLL = float(os.getenv("SERIAL_ACK_POLL", "0.05"))
 
 interp = None
 inp = out = None
 ser = None
 m = None
 
+
+def _read_serial_ack() -> List[str]:
+    if ser is None or SERIAL_ACK_TIMEOUT <= 0:
+        return []
+
+    deadline = time.perf_counter() + SERIAL_ACK_TIMEOUT
+    lines: List[str] = []
+
+    while time.perf_counter() <= deadline:
+        try:
+            waiting = getattr(ser, "in_waiting", 0)
+        except Exception as exc:  # noqa: BLE001
+            log.warning("Serial in_waiting check failed: %s", exc)
+            break
+
+        if waiting:
+            try:
+                raw = ser.readline()
+            except Exception as exc:  # noqa: BLE001
+                log.warning("Serial readline failed: %s", exc)
+                break
+
+            if not raw:
+                continue
+
+            decoded = raw.decode(errors="ignore").strip()
+            if decoded:
+                lines.append(decoded)
+                if len(lines) >= 5:
+                    break
+
+            # якщо ще є дані в буфері — дочекаємося наступного циклу без сну
+            continue
+
+        # нема що читати — невелика пауза перед наступною перевіркою
+        remaining = deadline - time.perf_counter()
+        if remaining <= 0:
+            break
+        time.sleep(min(SERIAL_ACK_POLL, remaining))
+
+    return lines
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global interp, inp, out, ser, m
     # Serial
-    ser = serial.Serial(SERIAL_DEV, 115200, timeout=0.02)
+    ser = serial.Serial(SERIAL_DEV, 115200, timeout=0.2)
     # Arduino Mega перезавантажується при відкритті послідовного порту —
     # даємо йому час закінчити bootloader і чистимо буфери, інакше перші
     # команди губляться.
@@ -67,8 +123,34 @@ def predict(o: Obs):
         interp.invoke()
         y = np.asarray(interp.get_output_tensor(out["index"])).tolist()[0]
         ms = (time.perf_counter() - t0) * 1000.0
-    pkt = {"seq": int(time.time()*1000), "cmd": y}
-    ser.write((json.dumps(pkt) + "\r\n").encode())
+    pkt = {"seq": int(time.time() * 1000), "cmd": y}
+    payload = json.dumps(pkt)
+
+    try:
+        ser.reset_input_buffer()
+    except Exception as exc:  # noqa: BLE001
+        log.debug("Could not clear serial input buffer: %s", exc)
+
+    sent = ser.write((payload + "\r\n").encode())
     ser.flush()
+    log.info(
+        "→ Arduino seq=%s bytes=%s cmd=%s",
+        pkt["seq"],
+        sent,
+        [round(v, 5) for v in y],
+    )
+
+    ack_lines = _read_serial_ack()
+    if ack_lines:
+        for line in ack_lines:
+            log.info("← Arduino seq=%s ack=%s", pkt["seq"], line)
+    else:
+        log.debug("No ack received from Arduino for seq=%s", pkt["seq"])
+
     m.publish("arm/metrics", json.dumps({"latency_ms": ms}), qos=0)
-    return {"action": y, "latency_ms": ms}
+    return {
+        "seq": pkt["seq"],
+        "action": y,
+        "latency_ms": ms,
+        "serial": {"bytes_written": int(sent), "ack": ack_lines},
+    }
