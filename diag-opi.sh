@@ -165,7 +165,7 @@ if docker compose -f "$COMPOSE_FILE" ps "$APP_SVC" 2>/dev/null | grep -q Up; the
     fail "GET /healthz недоступний на хості — перевір порти/мережу/стан app"
   fi
   # Перевірка 'TFL3' у моделі всередині контейнера без -t
-  if docker exec -i "$APP_CONT_NAME" python - <<'PY' 2>/dev/null; then
+  if docker exec -i "$APP_CONT_NAME" python - <<'PY' 2>/dev/null
 with open("/app/model.tflite","rb") as f:
   sig = f.read(8)
   print(sig[:4])
