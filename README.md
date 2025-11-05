@@ -15,6 +15,7 @@ Camera ──> FastAPI app ──> MQTT metrics ─> Mosquitto
 
 * **`app/`** – застосунок з FastAPI + TFLite. За замовчуванням використовує `DUMMY_MODEL=1`, щоб
   працювати навіть без TensorFlow Lite.
+* **`firmware/`** – прошивка для Arduino Mega 2560 із PCA9685.
 * **`mosquitto/`** – конфігурація та каталоги для брокера.
 * **`mqttc/`** – контейнер-утиліта для quick & dirty MQTT тестів.
 * **`diag-opi.sh`** – скрипт для перевірки середовища на самій платі.
@@ -31,9 +32,11 @@ Camera ──> FastAPI app ──> MQTT metrics ─> Mosquitto
 1. Клонувати репозиторій на плату: `git clone https://…/opi-zero-stack.git`.
 2. Переконатись, що симлінки `/dev/serial/by-id/usb-Arduino__www.arduino.cc__0042_*` та
    `/dev/v4l/by-id/usb-_Webcam_C170-video-index0` існують і вказують на character devices.
-3. Запустити `docker compose up -d --build`.
-4. Перевірити здоров'я застосунку: `curl http://localhost:8000/healthz`.
-5. Надіслати тестовий запит:
+3. Залити на Arduino скетч із каталогу [`firmware/`](firmware) (I2C адреса PCA9685 `0x40`, канали 0–5). Стек не прошиває плату
+   автоматично, тому зробіть цей крок вручну перед запуском контейнерів.
+4. Запустити `docker compose up -d --build`.
+5. Перевірити здоров'я застосунку: `curl http://localhost:8000/healthz`.
+6. Надіслати тестовий запит:
 
 ```bash
 curl -X POST http://localhost:8000/predict \
