@@ -1,0 +1,6 @@
+# Mosquitto runtime/persistence
+mosquitto/data/
+mosquitto/log/
+**/mosquitto.db*
+**/*.pid
+**/*.log
