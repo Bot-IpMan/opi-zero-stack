@@ -88,6 +88,36 @@ void sendOk(const String &seqStr) {
   Serial.println();
 }
 
+String unsignedLongLongToString(unsigned long long value) {
+  char buffer[32];
+  size_t index = 0;
+  do {
+    const unsigned long long digit = value % 10ULL;
+    buffer[index++] = static_cast<char>('0' + digit);
+    value /= 10ULL;
+  } while (value > 0 && index < (sizeof(buffer) - 1));
+
+  buffer[index] = '\0';
+
+  for (size_t i = 0; i < index / 2; ++i) {
+    char tmp = buffer[i];
+    buffer[i] = buffer[index - 1 - i];
+    buffer[index - 1 - i] = tmp;
+  }
+
+  return String(buffer);
+}
+
+String longLongToString(long long value) {
+  if (value < 0) {
+    const unsigned long long magnitude = static_cast<unsigned long long>(-(value + 1)) + 1ULL;
+    String result = String('-');
+    result += unsignedLongLongToString(magnitude);
+    return result;
+  }
+  return unsignedLongLongToString(static_cast<unsigned long long>(value));
+}
+
 String extractSeqString(const JsonVariant &seqVariant) {
   if (seqVariant.isNull()) {
     return String();
@@ -96,10 +126,10 @@ String extractSeqString(const JsonVariant &seqVariant) {
     return String(seqVariant.as<const char *>());
   }
   if (seqVariant.is<long long>()) {
-    return String(seqVariant.as<long long>());
+    return longLongToString(seqVariant.as<long long>());
   }
   if (seqVariant.is<unsigned long long>()) {
-    return String(seqVariant.as<unsigned long long>());
+    return unsignedLongLongToString(seqVariant.as<unsigned long long>());
   }
   if (seqVariant.is<long>()) {
     return String(seqVariant.as<long>());
