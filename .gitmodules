@@ -1,0 +1,3 @@
+[submodule "firmware/mega2560/libraries/ArduinoJson"]
+	path = firmware/mega2560/libraries/ArduinoJson
+	url = https://github.com/bblanchon/ArduinoJson.git
