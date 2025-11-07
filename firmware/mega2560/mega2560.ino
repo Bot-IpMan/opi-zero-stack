@@ -79,71 +79,90 @@ void sendError(const __FlashStringHelper *msg) {
   Serial.println(msg);
 }
 
-void sendOk(const String &seqStr) {
+void sendOk(const char* seqStr) {
   Serial.print(F("OK"));
-  if (seqStr.length() > 0) {
+  if (seqStr != nullptr && seqStr[0] != '\0') {
     Serial.print(F(" seq="));
     Serial.print(seqStr);
   }
   Serial.println();
 }
 
-String unsignedLongLongToString(unsigned long long value) {
-  char buffer[32];
+// Допоміжні функції для конвертації long long в стрінг
+char* unsignedLongLongToBuffer(unsigned long long value, char* buffer, size_t bufSize) {
   size_t index = 0;
   do {
     const unsigned long long digit = value % 10ULL;
     buffer[index++] = static_cast<char>('0' + digit);
     value /= 10ULL;
-  } while (value > 0 && index < (sizeof(buffer) - 1));
+  } while (value > 0 && index < (bufSize - 1));
 
   buffer[index] = '\0';
 
+  // Reverse
   for (size_t i = 0; i < index / 2; ++i) {
     char tmp = buffer[i];
     buffer[i] = buffer[index - 1 - i];
     buffer[index - 1 - i] = tmp;
   }
 
-  return String(buffer);
+  return buffer;
 }
 
-String longLongToString(long long value) {
+char* longLongToBuffer(long long value, char* buffer, size_t bufSize) {
   if (value < 0) {
+    buffer[0] = '-';
     const unsigned long long magnitude = static_cast<unsigned long long>(-(value + 1)) + 1ULL;
-    String result = String('-');
-    result += unsignedLongLongToString(magnitude);
-    return result;
+    unsignedLongLongToBuffer(magnitude, buffer + 1, bufSize - 1);
+    return buffer;
   }
-  return unsignedLongLongToString(static_cast<unsigned long long>(value));
+  return unsignedLongLongToBuffer(static_cast<unsigned long long>(value), buffer, bufSize);
 }
 
-String extractSeqString(const JsonVariant &seqVariant) {
-  if (seqVariant.isNull()) {
-    return String();
+void extractSeqString(const JsonVariant &seqVariant, char* outBuffer, size_t outBufferSize) {
+  if (seqVariant.isNull() || outBufferSize == 0) {
+    outBuffer[0] = '\0';
+    return;
   }
+  
   if (seqVariant.is<const char *>()) {
-    return String(seqVariant.as<const char *>());
+    const char* str = seqVariant.as<const char *>();
+    strncpy(outBuffer, str, outBufferSize - 1);
+    outBuffer[outBufferSize - 1] = '\0';
+    return;
   }
+  
   if (seqVariant.is<long long>()) {
-    return longLongToString(seqVariant.as<long long>());
+    longLongToBuffer(seqVariant.as<long long>(), outBuffer, outBufferSize);
+    return;
   }
+  
   if (seqVariant.is<unsigned long long>()) {
-    return unsignedLongLongToString(seqVariant.as<unsigned long long>());
+    unsignedLongLongToBuffer(seqVariant.as<unsigned long long>(), outBuffer, outBufferSize);
+    return;
   }
+  
   if (seqVariant.is<long>()) {
-    return String(seqVariant.as<long>());
+    ltoa(seqVariant.as<long>(), outBuffer, 10);
+    return;
   }
+  
   if (seqVariant.is<unsigned long>()) {
-    return String(seqVariant.as<unsigned long>());
+    ultoa(seqVariant.as<unsigned long>(), outBuffer, 10);
+    return;
   }
+  
   if (seqVariant.is<int>()) {
-    return String(seqVariant.as<int>());
+    itoa(seqVariant.as<int>(), outBuffer, 10);
+    return;
   }
+  
   if (seqVariant.is<unsigned int>()) {
-    return String(seqVariant.as<unsigned int>());
+    utoa(seqVariant.as<unsigned int>(), outBuffer, 10);
+    return;
   }
-  return String();
+  
+  outBuffer[0] = '\0';
 }
 
 void processCommand(const char *payload) {
@@ -168,7 +187,7 @@ void processCommand(const char *payload) {
 
   float values[SERVO_COUNT];
   for (size_t i = 0; i < SERVO_COUNT; ++i) {
-    if (!cmd[i].is<float>() && !cmd[i].is<double>()) {
+    if (!cmd[i].is<float>() && !cmd[i].is<double>() && !cmd[i].is<int>()) {
       sendError(F("cmd_type"));
       return;
     }
@@ -184,8 +203,9 @@ void processCommand(const char *payload) {
     applyServoPulse(i, pulse);
   }
 
-  String seqStr = extractSeqString(seqVariant);
-  sendOk(seqStr);
+  char seqBuffer[32];
+  extractSeqString(seqVariant, seqBuffer, sizeof(seqBuffer));
+  sendOk(seqBuffer);
 }
 
 void setup() {
@@ -205,6 +225,8 @@ void setup() {
   }
 
   wiggleServos();
+  
+  Serial.println(F("READY"));
 }
 
 void loop() {
