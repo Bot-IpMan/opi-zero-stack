@@ -39,21 +39,28 @@ def _wait_for_arduino_ready(timeout: float = SERIAL_INIT_TIMEOUT) -> bool:
     
     log.info("Waiting for Arduino READY signal (timeout: %.1fs)...", timeout)
     deadline = time.perf_counter() + timeout
+    lines_received = []
     
     while time.perf_counter() < deadline:
         try:
             if ser.in_waiting > 0:
                 line = ser.readline().decode(errors="ignore").strip()
-                log.debug("Arduino init: %s", line)
-                if "READY" in line:
-                    log.info("✓ Arduino READY")
-                    return True
+                if line:  # Ігноруємо порожні рядки
+                    lines_received.append(line)
+                    log.info("Arduino init: %s", line)
+                    if "READY" in line:
+                        log.info("✓ Arduino READY")
+                        return True
         except Exception as exc:
             log.warning("Error reading Arduino init: %s", exc)
         
         time.sleep(0.1)
     
     log.warning("Arduino did not send READY within %.1fs", timeout)
+    if lines_received:
+        log.warning("Received %d lines from Arduino: %s", len(lines_received), lines_received)
+    else:
+        log.error("No data received from Arduino at all - check wiring and sketch upload")
     return False
 
 
