@@ -18,27 +18,29 @@ services:
     build:
       context: ./app
       dockerfile: Dockerfile
-      # якщо збираєш не на Orange Pi, а на x86 — додай:
-      # platform: linux/arm/v7
     container_name: robot-app
-    depends_on: [mqtt]
+    depends_on: 
+      mqtt:
+        condition: service_started
     environment:
       SERIAL_DEV: /dev/ttyACM0
       MQTT_HOST: mqtt
+      MQTT_PORT: 1883
       MODEL_PATH: /app/model.tflite
       DUMMY_MODEL: "1"
     ports: ["8000:8000"]
     volumes:
       - ./app/model.tflite:/app/model.tflite:ro
     devices:
-      # Arduino Mega 2560 (стабільний by-id → усередині /dev/ttyACM0)
+      # Arduino Mega 2560 (by-id для стабільності)
       - "/dev/serial/by-id/usb-Arduino__www.arduino.cc__0042_75735353937351610261-if00:/dev/ttyACM0"
-      # Камера Logitech C170 (стабільний by-id → /dev/video0)
+      # Камера Logitech C170
       - "/dev/v4l/by-id/usb-_Webcam_C170-video-index0:/dev/video0"
     device_cgroup_rules:
-      - "c 81:* rmw"          # V4L2 major=81 (офіційний V4L2 інтерфейс — character device /dev/video*, major 81) 
+      - "c 166:* rmw"  # ttyACM* (major 166)
+      - "c 81:* rmw"   # video* (major 81)
     group_add:
-      - "20"                  # dialout
+      - "20"  # dialout для serial доступу
     restart: unless-stopped
     mem_limit: "120m"
     pids_limit: 128
@@ -57,12 +59,14 @@ services:
   mqttc:
     image: alpine:3.20
     container_name: mqttc
-    depends_on: [mqtt]
-    entrypoint: ["/bin/sh","-lc"]
-    command: >
-      apk add --no-cache mosquitto-clients &&
-      echo "mqttc ready: docker compose exec mqttc sh" &&
-      tail -f /dev/null
+    depends_on:
+      mqtt:
+        condition: service_started
+    entrypoint: ["/bin/sh", "-c"]
+    command: |
+      apk add --no-cache mosquitto-clients && \
+      echo "mqttc ready: docker compose exec mqttc sh" && \
+      exec tail -f /dev/null
     restart: unless-stopped
     logging:
       driver: local
