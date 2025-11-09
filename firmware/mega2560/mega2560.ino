@@ -59,6 +59,9 @@ void setup() {
   Wire.begin();
   // Wire.setClock(400000);     // можна швидший I2C, не обов'язково
   pwm.begin();
+  pwm.setOscillatorFrequency(27000000); // калібрує частоту, не обов’язково, але корисно
+  pwm.setOutputMode(true);              // totem-pole, не open-drain
+  pwm.setPWMFreq(50);
   pwm.setPWMFreq(50);
   delay(100);
 
