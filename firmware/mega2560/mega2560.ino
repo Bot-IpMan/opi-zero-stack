@@ -2,32 +2,30 @@
 #include <Adafruit_PWMServoDriver.h>
 #include <ArduinoJson.h>
 
-// ====== Налаштування безпеки ======
+// ====== КОНФІГ БЕЗПЕКИ ======
 #define USE_OE 1          // 1 = керуємо OE апаратно (рекомендовано), 0 = без OE-піна
-#define OE_PIN 7          // якщо USE_OE=1, під’єднай /OE плати PCA9685 до D7 МЕГА
+#define OE_PIN 7          // якщо USE_OE=1, під’єднай /OE (Output Enable) плати PCA9685 до D7 MEGA
 
-// ====== Загальні параметри ======
+// ====== ЗАГАЛЬНІ ПАРАМЕТРИ ======
 Adafruit_PWMServoDriver pwm(0x40);
+static const uint8_t N = 6;     // кількість сервоканалів
 
-static const uint8_t N = 6;     // кількість серв на руці
-
-// Діапазон для 90°-серво (стартово дуже вузький та безпечний)
-// За потреби розширюй поступово — спершу відкалібруй кожен канал
+// Стартово дуже вузький і безпечний діапазон (≈1500 ±50 мкс) — розширюй після калібрування
 int MIN_US[N] = {1450,1450,1450,1450,1450,1450};
 int MAX_US[N] = {1550,1550,1550,1550,1550,1550};
 
-// Акуратність команд 0..1: 0.10 = 10% від доступного ходу (дуже делікатно)
+// Наскільки частка команди 0..1 впливає на хід (0.10 = 10% від доступного діапазону)
 const float CMD_GAIN = 0.10f;
 
-// Обмеження швидкості (10× повільніше)
+// Обмеження швидкості (дуже повільно)
 const int   MAX_STEP_US   = 1;    // крок 1 мкс за ітерацію
-const int   STEP_DELAY_MS = 25;   // пауза 25 мс між кроками
-const int   DEADBAND_US   = 1;    // ігнорувати спроби руху <1 мкс
+const int   STEP_DELAY_MS = 25;   // пауза 25 мс між ітераціями
+const int   DEADBAND_US   = 1;    // ігнорувати похибки <1 мкс
 
 int  last_us[N];
 bool ARMED = false;
 
-// ====== Утиліти ======
+// ====== УТИЛІТИ ======
 inline int clampUs(int ch, int us){
   if (us < MIN_US[ch]) us = MIN_US[ch];
   if (us > MAX_US[ch]) us = MAX_US[ch];
@@ -51,6 +49,7 @@ inline void writeUs(int ch, int us){
   last_us[ch] = us;
 }
 
+// Плавний рух з обмеженням швидкості
 void moveWithRateLimit(const int target_us[]){
   bool done = false;
   while (!done){
@@ -69,26 +68,26 @@ void moveWithRateLimit(const int target_us[]){
   }
 }
 
-// Послідовне м’яке центрування — без піків
-void softCenter(){
-  for (uint8_t i=0;i<N;i++){
-    int mid = (MIN_US[i] + MAX_US[i]) / 2;
-    last_us[i] = mid;
-    writeUs(i, mid);
-    delay(150); // по одному
+// Повністю вимкнути всі канали (без утримання)
+void outputsOff(){
+  for (uint8_t i=0;i<N;i++) pwm.setPWM(i, 0, 0);
+}
+
+// Мікрокроки для одного каналу: ch — канал, du — крок у мкс (може бути від’ємний), n — к-сть кроків
+void stepChannel(uint8_t ch, int du, int n, int dly=25){
+  for (int k=0; k<n; k++){
+    int next = last_us[ch] + du;
+    writeUs(ch, next);
+    delay(dly);
   }
 }
 
 // ====== ARM / DISARM ======
-void outputsOff(){
-  for (uint8_t i=0;i<N;i++) pwm.setPWM(i, 0, 0); // повністю OFF
-}
-
 void armAndCenter(){
 #if USE_OE
-  digitalWrite(OE_PIN, LOW);  // дозволити виходи
+  digitalWrite(OE_PIN, LOW);     // дозволити виходи драйвера
 #endif
-  softCenter();
+  // Без автопозиціювання: серви не рухаються до першої команди
   ARMED = true;
   Serial.println(F("ARMED"));
 }
@@ -96,7 +95,7 @@ void armAndCenter(){
 void disarmAll(){
   outputsOff();
 #if USE_OE
-  digitalWrite(OE_PIN, HIGH); // вимкнути виходи драйвера
+  digitalWrite(OE_PIN, HIGH);    // вимкнути виходи драйвера
 #endif
   ARMED = false;
   Serial.println(F("DISARMED"));
@@ -109,18 +108,22 @@ void setup(){
 
   Wire.begin();
   pwm.begin();
-  pwm.setOscillatorFrequency(27000000); // опційно, стабілізує частоту
+  pwm.setOscillatorFrequency(27000000); // опціонально для стабільності
   pwm.setOutputMode(true);              // totem-pole
   pwm.setPWMFreq(50);
   delay(100);
 
 #if USE_OE
   pinMode(OE_PIN, OUTPUT);
-  digitalWrite(OE_PIN, HIGH);  // по замовчуванню виходи вимкнені
+  digitalWrite(OE_PIN, HIGH);           // за замовчуванням виходи ВИМКНЕНО
 #endif
   outputsOff();
 
-  // Безпечне повідомлення про стан
+  // Ініціалізуємо внутрішній стан (без руху): ставимо "уявний" середній
+  for (uint8_t i=0;i<N;i++){
+    last_us[i] = (MIN_US[i] + MAX_US[i]) / 2;
+  }
+
 #if USE_OE
   Serial.println(F("READY DISARMED (OE)"));
 #else
@@ -142,7 +145,7 @@ void loop(){
     return;
   }
 
-  // Керування ARM
+  // ---- ARM / DISARM ----
   if (doc.containsKey("arm")){
     bool v = doc["arm"];
     if (v) armAndCenter();
@@ -150,7 +153,21 @@ void loop(){
     return;
   }
 
-  // Команди на рух
+  // ---- STEP-режим для одного каналу ----
+  if (doc.containsKey("step")){
+    if (!ARMED){ Serial.println(F("ERR not_armed")); return; }
+    JsonObject st = doc["step"];
+    uint8_t ch = st["ch"] | 0;
+    int du     = st["du"] | 1;     // мкс за крок
+    int n      = st["n"]  | 10;    // кількість кроків
+    int dly    = st["dly"]| 25;    // мс між кроками
+    if (ch >= N){ Serial.println(F("ERR ch_range")); return; }
+    stepChannel(ch, du, n, dly);
+    Serial.println(F("OK step"));
+    return;
+  }
+
+  // ---- Команда позицій для всіх каналів ----
   if (!ARMED){
     Serial.println(F("ERR not_armed"));
     return;
@@ -167,7 +184,7 @@ void loop(){
 
   int target_us[N];
   for (uint8_t i=0;i<N;i++){
-    float v = cmd[i].as<float>();    // 0.0..1.0
+    float v = cmd[i].as<float>();      // очікуємо 0.0..1.0
     target_us[i] = normToUsWithGain(i, v);
   }
 
