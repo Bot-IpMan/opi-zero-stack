@@ -4,72 +4,93 @@
 
 Adafruit_PWMServoDriver pwm(0x40);
 
-static const uint8_t N = 6;         // кількість серв
-// Калібруй під свою механіку (старт безпечно: 900..2100)
-int MIN_US[N] = { 900, 900, 900, 900, 900, 900 };
-int MAX_US[N] = {2100,2100,2100,2100,2100,2100 };
+static const uint8_t N = 6;   // кількість серв
 
-int last_us[N]; // остання позиція, щоб рухатись плавно
+// --- ДІАПАЗОН ПІД 90°-серво (можеш підкрутити на кожен канал) ---
+int MIN_US[N] = {1250,1250,1250,1250,1250,1250};   // ≈ -45°
+int MAX_US[N] = {1750,1750,1750,1750,1750,1750};   // ≈ +45°
+// Для дуже малих тестових рухів зроби наприклад 1450..1550
 
-int clampUs(int ch, int us){
+// --- ГЕЙН ДЛЯ МІКРОРУХІВ навколо центру (0.15 = 15% ходу) ---
+const float CMD_GAIN = 0.20f;        // піднімай поступово до 1.0
+
+// --- ЛІМІТИ ШВИДКОСТІ ---
+const int MAX_STEP_US = 4;           // макс. крок у мкс за ітерацію
+const int STEP_DELAY_MS = 10;        // пауза між кроками
+const int DEADBAND_US = 2;           // “мертва зона” (дрібні помилки ігноруємо)
+
+int last_us[N]; // остання позиція
+
+inline int clampUs(int ch, int us){
   if (us < MIN_US[ch]) us = MIN_US[ch];
   if (us > MAX_US[ch]) us = MAX_US[ch];
   return us;
 }
 
-int normToUs(int ch, float v){               // v ∈ [0.0..1.0]
+// Нормалізований 0..1 → у мкс з урахуванням CMD_GAIN навколо центру
+int normToUsWithGain(int ch, float v){
   if (v < 0) v = 0; if (v > 1) v = 1;
-  long span = (long)MAX_US[ch] - MIN_US[ch];
-  return (int)(MIN_US[ch] + (span * v + 0.5));
+  const int minv = MIN_US[ch];
+  const int maxv = MAX_US[ch];
+  const int mid  = (minv + maxv)/2;
+  const int half = (maxv - minv)/2;
+  // mapping: 0..1 → -1..+1 → стискаємо CMD_GAIN → додаємо до середини
+  float x = (v - 0.5f) * 2.0f * CMD_GAIN;
+  int us = (int)(mid + x * half + 0.5f);
+  return clampUs(ch, us);
 }
 
-void writeUs(int ch, int us){
-  pwm.writeMicroseconds(ch, clampUs(ch, us));
-  last_us[ch] = clampUs(ch, us);
+inline void writeUs(int ch, int us){
+  us = clampUs(ch, us);
+  pwm.writeMicroseconds(ch, us);
+  last_us[ch] = us;
 }
 
-// Плавний груповий рух без піків
-void moveBatchSmooth(int target_us[], int steps=20, int stepDelay=10){
-  int start[N];
-  for (uint8_t i=0;i<N;i++) start[i] = last_us[i];
-  for (int s=1; s<=steps; s++){
+// Плавний рух з обмеженням швидкості (у мкс/крок)
+void moveWithRateLimit(const int target_us[]){
+  bool done = false;
+  while (!done){
+    done = true;
     for (uint8_t i=0;i<N;i++){
-      long v = start[i] + (long)(target_us[i]-start[i]) * s / steps;
-      writeUs(i, (int)v);
+      int cur = last_us[i];
+      int tgt = clampUs(i, target_us[i]);
+      int d   = tgt - cur;
+      if (abs(d) > DEADBAND_US){
+        done = false;
+        int step = (abs(d) > MAX_STEP_US) ? ( (d>0)? MAX_STEP_US : -MAX_STEP_US ) : d;
+        writeUs(i, cur + step);
+      }
     }
-    delay(stepDelay);
+    delay(STEP_DELAY_MS);
   }
 }
 
-// Послідовне «м’яке» центрування на старті
+// Послідовне м’яке центрування (щоб не було піку струму)
 void softCenter(){
   for (uint8_t i=0;i<N;i++){
     int mid = (MIN_US[i]+MAX_US[i])/2;
-    // стартуємо з поточного last_us (якщо живлення щойно подали — візьмемо середину)
     last_us[i] = mid;
     writeUs(i, mid);
-    delay(120);                 // НЕ всі одразу
+    delay(150); // по одному
   }
 }
 
-void setup() {
+void setup(){
   Serial.begin(115200);
-  while(!Serial) { delay(10); }
+  while(!Serial){ delay(10); }
 
   Wire.begin();
-  // Wire.setClock(400000);     // можна швидший I2C, не обов'язково
   pwm.begin();
-  pwm.setOscillatorFrequency(27000000); // калібрує частоту, не обов’язково, але корисно
-  pwm.setOutputMode(true);              // totem-pole, не open-drain
-  pwm.setPWMFreq(50);
+  pwm.setOscillatorFrequency(27000000); // опціонально, як стабілізатор
+  pwm.setOutputMode(true);              // totem-pole
   pwm.setPWMFreq(50);
   delay(100);
 
-  softCenter();                 // без ривка
+  softCenter();
   Serial.println(F("READY"));
 }
 
-void loop() {
+void loop(){
   if (!Serial.available()) return;
 
   String line = Serial.readStringUntil('\n');
@@ -80,18 +101,17 @@ void loop() {
   DeserializationError err = deserializeJson(doc, line);
   if (err){ Serial.print(F("ERR json_parse ")); Serial.println(err.c_str()); return; }
 
-  if (!doc.containsKey("cmd")) { Serial.println(F("ERR missing_cmd")); return; }
+  if (!doc.containsKey("cmd")){ Serial.println(F("ERR missing_cmd")); return; }
   JsonArray cmd = doc["cmd"];
-  if (cmd.size()!=N) { Serial.println(F("ERR cmd_size")); return; }
+  if (cmd.size()!=N){ Serial.println(F("ERR cmd_size")); return; }
 
   int target_us[N];
   for (uint8_t i=0;i<N;i++){
-    float v = cmd[i].as<float>();          // очікуємо 0.0..1.0
-    target_us[i] = clampUs(i, normToUs(i, v));
+    float v = cmd[i].as<float>();   // очікуємо 0.0..1.0
+    target_us[i] = normToUsWithGain(i, v);
   }
 
-  // Плавний рух, невеликими кроками (всі разом, але делікатно)
-  moveBatchSmooth(target_us, /*steps=*/25, /*stepDelay=*/8);
+  moveWithRateLimit(target_us);
 
   Serial.print(F("OK"));
   if (doc.containsKey("seq")){ Serial.print(F(" seq=")); Serial.print(doc["seq"].as<String>()); }
