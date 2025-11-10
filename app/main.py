@@ -14,6 +14,8 @@ from pydantic import BaseModel
 MODEL_PATH = os.getenv("MODEL_PATH", "/app/model.tflite")
 SERIAL_DEV = os.getenv("SERIAL_DEV", "/dev/ttyACM0")
 USE_DUMMY = os.getenv("DUMMY_MODEL", "0") == "1"
+SERIAL_FALLBACK_ALLOWED = os.getenv("ALLOW_SERIAL_FALLBACK", "1") == "1"
+MQTT_FALLBACK_ALLOWED = os.getenv("ALLOW_MQTT_FALLBACK", "1") == "1"
 
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
 logging.basicConfig(
@@ -113,35 +115,96 @@ def _read_serial_ack() -> List[str]:
     return lines
 
 
+class _DummySerial:
+    """Невибаглива заглушка на випадок відсутності реального serial."""
+
+    def __init__(self) -> None:
+        self.is_open = True
+        self._written = 0
+
+    def reset_input_buffer(self) -> None:  # pragma: no cover - поведінка тривіальна
+        self._written = 0
+
+    def reset_output_buffer(self) -> None:  # pragma: no cover - поведінка тривіальна
+        pass
+
+    @property
+    def in_waiting(self) -> int:
+        return 0
+
+    def readline(self) -> bytes:
+        return b""
+
+    def write(self, data: bytes) -> int:
+        self._written += len(data)
+        return len(data)
+
+    def flush(self) -> None:
+        pass
+
+    def close(self) -> None:
+        self.is_open = False
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global interp, inp, out, ser, m
-    
+
     # Serial
-    log.info("Opening serial port %s at 115200 baud", SERIAL_DEV)
-    ser = serial.Serial(SERIAL_DEV, 115200, timeout=0.2)
-    
-    # Arduino Mega перезавантажується при відкритті послідовного порту —
-    # даємо йому час закінчити bootloader і wiggle сервоприводів
-    log.info("Waiting for Arduino boot (2s)...")
-    time.sleep(2.0)
-    
-    # Чистимо буфери
-    ser.reset_input_buffer()
-    ser.reset_output_buffer()
-    
-    # Чекаємо на READY сигнал
-    arduino_ready = _wait_for_arduino_ready()
-    if not arduino_ready:
-        log.warning("Arduino may not be fully initialized - continuing anyway")
-    
+    if SERIAL_DEV:
+        log.info("Opening serial port %s at 115200 baud", SERIAL_DEV)
+        try:
+            ser = serial.Serial(SERIAL_DEV, 115200, timeout=0.2)
+        except serial.SerialException as exc:
+            if SERIAL_FALLBACK_ALLOWED:
+                log.warning(
+                    "Could not open serial port %s (%s). Using dummy serial.",
+                    SERIAL_DEV,
+                    exc,
+                )
+                ser = _DummySerial()
+            else:
+                log.error("Serial port %s unavailable and fallback disabled", SERIAL_DEV)
+                raise
+    else:
+        if SERIAL_FALLBACK_ALLOWED:
+            log.warning("SERIAL_DEV not set. Using dummy serial backend.")
+            ser = _DummySerial()
+        else:
+            raise RuntimeError("SERIAL_DEV is not configured and fallback disabled")
+
+    if not isinstance(ser, _DummySerial):
+        # Arduino Mega перезавантажується при відкритті послідовного порту —
+        # даємо йому час закінчити bootloader і wiggle сервоприводів
+        log.info("Waiting for Arduino boot (2s)...")
+        time.sleep(2.0)
+
+        # Чистимо буфери
+        ser.reset_input_buffer()
+        ser.reset_output_buffer()
+
+        # Чекаємо на READY сигнал
+        arduino_ready = _wait_for_arduino_ready()
+        if not arduino_ready:
+            log.warning("Arduino may not be fully initialized - continuing anyway")
+    else:
+        log.info("Dummy serial in use - skipping Arduino init handshake")
+
     # MQTT
     mqtt_host = os.getenv("MQTT_HOST", "localhost")
     mqtt_port = int(os.getenv("MQTT_PORT", "1883"))
     log.info("Connecting to MQTT broker at %s:%d", mqtt_host, mqtt_port)
-    m = mqtt.Client(client_id="opiz")
-    m.connect(mqtt_host, mqtt_port, 60)
-    m.loop_start()
+    try:
+        m = mqtt.Client(client_id="opiz")
+        m.connect(mqtt_host, mqtt_port, 60)
+        m.loop_start()
+    except Exception as exc:
+        log.error("Failed to connect to MQTT broker at %s:%d: %s", mqtt_host, mqtt_port, exc)
+        if MQTT_FALLBACK_ALLOWED:
+            log.warning("Continuing without MQTT connection")
+            m = None
+        else:
+            raise
     
     # Model (не падаємо, якщо файла нема)
     if not USE_DUMMY and os.path.exists(MODEL_PATH):
@@ -164,7 +227,7 @@ async def lifespan(app: FastAPI):
     if m is not None:
         m.loop_stop()
         m.disconnect()
-    if ser is not None and ser.is_open:
+    if ser is not None and getattr(ser, "is_open", False):
         ser.close()
 
 
