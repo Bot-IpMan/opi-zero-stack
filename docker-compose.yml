@@ -62,11 +62,13 @@ services:
     depends_on:
       mqtt:
         condition: service_started
-    entrypoint: ["/bin/sh", "-lc"]
-    command: >-
-      apk add --no-cache mosquitto-clients &&
-      echo "mqttc ready: docker compose exec mqttc sh" &&
-      exec tail -f /dev/null
+    entrypoint:
+      - "/bin/sh"
+      - "-lc"
+      - >-
+        apk add --no-cache mosquitto-clients &&
+        echo "mqttc ready: docker compose exec mqttc sh" &&
+        exec tail -f /dev/null
     restart: unless-stopped
     logging:
       driver: local
