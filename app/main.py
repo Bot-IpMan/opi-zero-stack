@@ -362,3 +362,46 @@ def test_arduino():
             "ack": ack_lines,
         },
     }
+
+
+@app.post("/raw")
+def send_raw_command(command: dict):
+    """Відправити довільну JSON команду на Arduino (arm, step, prime, setRange, cmd)."""
+    if ser is None or not ser.is_open:
+        raise HTTPException(status_code=503, detail="Serial port is not available")
+
+    payload = json.dumps(command, separators=(",", ":"))
+
+    try:
+        ser.reset_input_buffer()
+    except Exception as exc:
+        log.debug("Could not clear serial input buffer: %s", exc)
+
+    sent = ser.write((payload + "\n").encode())
+    ser.flush()
+
+    log.info("→ Arduino RAW bytes=%d cmd=%s", sent, payload)
+
+    ack_lines = _read_serial_ack()
+    ack_status = "unknown"
+
+    if ack_lines:
+        for line in ack_lines:
+            log.info("← Arduino RAW ack=%s", line)
+            if line.startswith("OK"):
+                ack_status = "ok"
+            elif line.startswith("ERR"):
+                ack_status = "error"
+                log.error("Arduino error: %s", line)
+    else:
+        log.warning("No ack received from Arduino")
+        ack_status = "timeout"
+
+    return {
+        "command": command,
+        "serial": {
+            "bytes_written": int(sent),
+            "ack": ack_lines,
+            "status": ack_status,
+        },
+    }
