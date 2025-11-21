@@ -13,13 +13,48 @@ services:
       options:
         max-size: "5m"
         max-file: "2"
+    networks:
+      - robotarm
 
+  # YOLO Detection на Orange Pi PC (якщо присутній)
+  yolo-detector:
+    build:
+      context: ./yolo-detection
+      dockerfile: Dockerfile
+    image: robotarm-yolo:latest
+    container_name: yolo-detector
+    depends_on:
+      mqtt:
+        condition: service_started
+    environment:
+      MQTT_HOST: mqtt
+      MQTT_PORT: 1883
+    volumes:
+      - ./yolo-detection/models:/detection/models
+    devices:
+      # Камера на Orange Pi PC
+      - "/dev/v4l/by-id/usb-_Webcam_C170-video-index0:/dev/video0"
+    device_cgroup_rules:
+      - "c 81:* rmw"  # video*
+    restart: unless-stopped
+    mem_limit: "512m"
+    logging:
+      driver: local
+      options:
+        max-size: "5m"
+        max-file: "2"
+    networks:
+      - robotarm
+    # Запустити тільки якщо YOLO_ENABLED=1
+    # profiles: ["yolo"]
+
+  # RL Inference на Orange Pi Zero
   app:
     build:
       context: ./app
       dockerfile: Dockerfile
     container_name: robot-app
-    depends_on: 
+    depends_on:
       mqtt:
         condition: service_started
     environment:
@@ -27,20 +62,17 @@ services:
       MQTT_HOST: mqtt
       MQTT_PORT: 1883
       MODEL_PATH: /app/model.tflite
-      DUMMY_MODEL: "1"
+      DUMMY_MODEL: "1"  # Збільшити на 0 коли є модель
     ports: ["8000:8000"]
     volumes:
       - ./app/model.tflite:/app/model.tflite:ro
     devices:
-      # Arduino Mega 2560 (by-id для стабільності)
+      # Arduino Mega 2560
       - "/dev/serial/by-id/usb-Arduino__www.arduino.cc__0042_75735353937351610261-if00:/dev/ttyACM0"
-      # Камера Logitech C170
-      - "/dev/v4l/by-id/usb-_Webcam_C170-video-index0:/dev/video0"
     device_cgroup_rules:
-      - "c 166:* rmw"  # ttyACM* (major 166)
-      - "c 81:* rmw"   # video* (major 81)
+      - "c 166:* rmw"  # ttyACM*
     group_add:
-      - "20"  # dialout для serial доступу
+      - "20"  # dialout
     restart: unless-stopped
     mem_limit: "120m"
     pids_limit: 128
@@ -50,12 +82,15 @@ services:
         max-size: "5m"
         max-file: "2"
     healthcheck:
-      test: ["CMD-SHELL", "python - <<'PY'\nimport urllib.request,sys\nu=urllib.request.urlopen('http://localhost:8000/healthz', timeout=1)\nsys.exit(0 if u.status==200 else 1)\nPY"]
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/healthz || exit 1"]
       interval: 20s
       timeout: 3s
       retries: 3
       start_period: 5s
+    networks:
+      - robotarm
 
+  # MQTT диагностичні утиліти
   mqttc:
     image: alpine:3.20
     container_name: mqttc
@@ -67,11 +102,17 @@ services:
       - "-lc"
       - >-
         apk add --no-cache mosquitto-clients &&
-        echo "mqttc ready: docker compose exec mqttc sh" &&
-        exec tail -f /dev/null
+        echo "Ready: docker compose exec mqttc sh" &&
+        tail -f /dev/null
     restart: unless-stopped
     logging:
       driver: local
       options:
         max-size: "5m"
         max-file: "2"
+    networks:
+      - robotarm
+
+networks:
+  robotarm:
+    driver: bridge
