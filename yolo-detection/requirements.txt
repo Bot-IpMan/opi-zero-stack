@@ -1,0 +1,3 @@
+paho-mqtt
+tflite-runtime
+opencv-python
