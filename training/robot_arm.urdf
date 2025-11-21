@@ -1,0 +1,4 @@
+<!-- Placeholder URDF for the robot arm model. Replace with full kinematic description. -->
+<robot name="placeholder_robot_arm">
+    <link name="base_link" />
+</robot>
