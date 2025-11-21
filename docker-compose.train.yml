@@ -1,0 +1,9 @@
+version: "3.9"
+services:
+  training:
+    build:
+      context: ./training
+    volumes:
+      - ./training:/workspace/training
+    working_dir: /workspace/training
+    command: ["python", "train_ppo.py"]
