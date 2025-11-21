@@ -1,9 +1,37 @@
-version: "3.9"
 services:
   training:
     build:
       context: ./training
+      dockerfile: Dockerfile
+    image: robotarm-training:latest
+    container_name: robotarm_training
     volumes:
-      - ./training:/workspace/training
-    working_dir: /workspace/training
-    command: ["python", "train_ppo.py"]
+      - ./training:/training
+    environment:
+      - PYTHONUNBUFFERED=1
+    # GPU (якщо доступна)
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    command: python train_ppo.py --total-timesteps 500000
+    networks:
+      - training
+
+  tensorboard:
+    image: tensorflow/tensorflow:latest
+    container_name: robotarm_tensorboard
+    ports:
+      - "6006:6006"
+    volumes:
+      - ./training/tensorboard:/logs:ro
+    command: tensorboard --logdir /logs --host 0.0.0.0
+    networks:
+      - training
+
+networks:
+  training:
+    driver: bridge
