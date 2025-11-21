@@ -1,407 +1,311 @@
-from contextlib import asynccontextmanager
-import json
-import logging
-import os
-import time
-from typing import List, Optional
+#!/usr/bin/env python3
+"""
+Orange Pi Zero: RL Inference + YOLO Integration
+"""
 
-import numpy as np
-import paho.mqtt.client as mqtt
+import os
+import json
+import time
+import asyncio
+import logging
+import tflite_runtime.interpreter as tflite
 import serial
+import paho.mqtt.client as mqtt
+import numpy as np
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
+from typing import Optional
+from threading import Thread, Lock
 
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# Конфіг
 MODEL_PATH = os.getenv("MODEL_PATH", "/app/model.tflite")
 SERIAL_DEV = os.getenv("SERIAL_DEV", "/dev/ttyACM0")
-USE_DUMMY = os.getenv("DUMMY_MODEL", "0") == "1"
-SERIAL_FALLBACK_ALLOWED = os.getenv("ALLOW_SERIAL_FALLBACK", "1") == "1"
-MQTT_FALLBACK_ALLOWED = os.getenv("ALLOW_MQTT_FALLBACK", "1") == "1"
+MQTT_HOST = os.getenv("MQTT_HOST", "mqtt")
+MQTT_PORT = int(os.getenv("MQTT_PORT", 1883))
+DUMMY_MODEL = os.getenv("DUMMY_MODEL", "0") == "1"
 
-LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
-logging.basicConfig(
-    level=getattr(logging, LOG_LEVEL, logging.INFO),
-    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-)
-log = logging.getLogger("opi_zero_app")
+app = FastAPI(title="Robot Arm RL Controller")
 
-SERIAL_ACK_TIMEOUT = float(os.getenv("SERIAL_ACK_TIMEOUT", "1.0"))
-SERIAL_ACK_POLL = float(os.getenv("SERIAL_ACK_POLL", "0.05"))
-SERIAL_INIT_TIMEOUT = float(os.getenv("SERIAL_INIT_TIMEOUT", "5.0"))
+class YOLODetection(BaseModel):
+    objects: list
+    timestamp: float
+    inference_time_ms: float
 
-interp = None
-inp = out = None
-ser = None
-m = None
+class RobotState(BaseModel):
+    joint_angles: list[float]
+    target_object: Optional[dict] = None
+    action: Optional[list[float]] = None
+    serial_ack: Optional[str] = None
 
-
-def _wait_for_arduino_ready(timeout: float = SERIAL_INIT_TIMEOUT) -> bool:
-    """Wait for Arduino to send READY signal after boot."""
-    if ser is None:
-        return False
-    
-    log.info("Waiting for Arduino READY signal (timeout: %.1fs)...", timeout)
-    deadline = time.perf_counter() + timeout
-    lines_received = []
-    
-    while time.perf_counter() < deadline:
-        try:
-            if ser.in_waiting > 0:
-                line = ser.readline().decode(errors="ignore").strip()
-                if line:  # Ігноруємо порожні рядки
-                    lines_received.append(line)
-                    log.info("Arduino init: %s", line)
-                    if "READY" in line:
-                        log.info("✓ Arduino READY")
-                        return True
-        except Exception as exc:
-            log.warning("Error reading Arduino init: %s", exc)
+class RobotController:
+    def __init__(self):
+        # TFLite інтерпретатор
+        self.interpreter = None
+        self.input_details = None
+        self.output_details = None
+        self.load_model()
         
-        time.sleep(0.1)
+        # Serial комунікація
+        self.serial_port = None
+        self.serial_lock = Lock()
+        self.init_serial()
+        
+        # MQTT
+        self.mqtt_client = mqtt.Client()
+        self.mqtt_client.on_message = self.on_mqtt_message
+        self.mqtt_client.connect(MQTT_HOST, MQTT_PORT, 60)
+        self.mqtt_client.subscribe("arm/vision/objects")
+        
+        # Стан
+        self.current_state = np.zeros(9, dtype=np.float32)  # [joints(6), yolo(3)]
+        self.joint_angles = np.zeros(6, dtype=np.float32)
+        self.yolo_target = np.zeros(3, dtype=np.float32)
+        self.last_detection_time = 0
+        
+        # MQTT loop в окремому потоці
+        mqtt_thread = Thread(target=self.mqtt_client.loop_forever, daemon=True)
+        mqtt_thread.start()
+        
+        logger.info("✅ RobotController ініціалізовано")
     
-    log.warning("Arduino did not send READY within %.1fs", timeout)
-    if lines_received:
-        log.warning("Received %d lines from Arduino: %s", len(lines_received), lines_received)
-    else:
-        log.error("No data received from Arduino at all - check wiring and sketch upload")
-    return False
-
-
-def _read_serial_ack() -> List[str]:
-    """Read acknowledgement lines from the serial port within the timeout window."""
-    if ser is None or SERIAL_ACK_TIMEOUT <= 0:
-        return []
-
-    deadline = time.perf_counter() + SERIAL_ACK_TIMEOUT
-    lines: List[str] = []
-
-    while time.perf_counter() <= deadline:
+    def load_model(self):
+        """Завантажити TFLite модель"""
+        if DUMMY_MODEL:
+            logger.info("🔧 DUMMY_MODEL=1 - модель не завантажується")
+            return
+        
         try:
-            waiting = getattr(ser, "in_waiting", 0)
-        except Exception as exc:
-            log.warning("Serial in_waiting check failed: %s", exc)
-            break
-
-        if waiting:
-            try:
-                raw = ser.readline()
-            except Exception as exc:
-                log.warning("Serial readline failed: %s", exc)
-                break
-
-            if not raw:
-                continue
-
-            decoded = raw.decode(errors="ignore").strip()
-            if decoded:
-                lines.append(decoded)
-                log.debug("Arduino ack: %s", decoded)
-                
-                # Якщо отримали OK або ERR — це остаточна відповідь
-                if decoded.startswith("OK") or decoded.startswith("ERR"):
-                    break
-                
-                if len(lines) >= 5:
-                    break
-
-            # якщо ще є дані в буфері — дочекаємося наступного циклу без сну
-            continue
-
-        # нема що читати — невелика пауза перед наступною перевіркою
-        remaining = deadline - time.perf_counter()
-        if remaining <= 0:
-            break
-        time.sleep(min(SERIAL_ACK_POLL, remaining))
-
-    return lines
-
-
-class _DummySerial:
-    """Невибаглива заглушка на випадок відсутності реального serial."""
-
-    def __init__(self) -> None:
-        self.is_open = True
-        self._written = 0
-
-    def reset_input_buffer(self) -> None:  # pragma: no cover - поведінка тривіальна
-        self._written = 0
-
-    def reset_output_buffer(self) -> None:  # pragma: no cover - поведінка тривіальна
-        pass
-
-    @property
-    def in_waiting(self) -> int:
-        return 0
-
-    def readline(self) -> bytes:
-        return b""
-
-    def write(self, data: bytes) -> int:
-        self._written += len(data)
-        return len(data)
-
-    def flush(self) -> None:
-        pass
-
-    def close(self) -> None:
-        self.is_open = False
-
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    global interp, inp, out, ser, m
-
-    # Serial
-    if SERIAL_DEV:
-        log.info("Opening serial port %s at 115200 baud", SERIAL_DEV)
-        try:
-            ser = serial.Serial(SERIAL_DEV, 115200, timeout=0.2)
-        except serial.SerialException as exc:
-            if SERIAL_FALLBACK_ALLOWED:
-                log.warning(
-                    "Could not open serial port %s (%s). Using dummy serial.",
-                    SERIAL_DEV,
-                    exc,
-                )
-                ser = _DummySerial()
-            else:
-                log.error("Serial port %s unavailable and fallback disabled", SERIAL_DEV)
-                raise
-    else:
-        if SERIAL_FALLBACK_ALLOWED:
-            log.warning("SERIAL_DEV not set. Using dummy serial backend.")
-            ser = _DummySerial()
-        else:
-            raise RuntimeError("SERIAL_DEV is not configured and fallback disabled")
-
-    if not isinstance(ser, _DummySerial):
-        # Arduino Mega перезавантажується при відкритті послідовного порту —
-        # даємо йому час закінчити bootloader і wiggle сервоприводів
-        log.info("Waiting for Arduino boot (2s)...")
-        time.sleep(2.0)
-
-        # Чистимо буфери
-        ser.reset_input_buffer()
-        ser.reset_output_buffer()
-
-        # Чекаємо на READY сигнал
-        arduino_ready = _wait_for_arduino_ready()
-        if not arduino_ready:
-            log.warning("Arduino may not be fully initialized - continuing anyway")
-    else:
-        log.info("Dummy serial in use - skipping Arduino init handshake")
-
-    # MQTT
-    mqtt_host = os.getenv("MQTT_HOST", "localhost")
-    mqtt_port = int(os.getenv("MQTT_PORT", "1883"))
-    log.info("Connecting to MQTT broker at %s:%d", mqtt_host, mqtt_port)
-    try:
-        m = mqtt.Client(client_id="opiz")
-        m.connect(mqtt_host, mqtt_port, 60)
-        m.loop_start()
-    except Exception as exc:
-        log.error("Failed to connect to MQTT broker at %s:%d: %s", mqtt_host, mqtt_port, exc)
-        if MQTT_FALLBACK_ALLOWED:
-            log.warning("Continuing without MQTT connection")
-            m = None
-        else:
+            self.interpreter = tflite.Interpreter(model_path=MODEL_PATH)
+            self.interpreter.allocate_tensors()
+            
+            self.input_details = self.interpreter.get_input_details()
+            self.output_details = self.interpreter.get_output_details()
+            
+            logger.info(f"✅ Модель завантажена: {MODEL_PATH}")
+        except Exception as e:
+            logger.error(f"❌ Помилка завантаження моделі: {e}")
             raise
     
-    # Model (не падаємо, якщо файла нема)
-    if not USE_DUMMY and os.path.exists(MODEL_PATH):
-        log.info("Loading TFLite model from %s", MODEL_PATH)
-        from tflite_runtime.interpreter import Interpreter
-        interp = Interpreter(model_path=MODEL_PATH)
-        interp.allocate_tensors()
-        inp, out = interp.get_input_details()[0], interp.get_output_details()[0]
-        log.info("✓ Model loaded: input_shape=%s output_shape=%s", 
-                 inp["shape"], out["shape"])
-    elif USE_DUMMY:
-        log.info("Using DUMMY model (passthrough mode)")
-    else:
-        log.warning("Model file not found at %s", MODEL_PATH)
+    def init_serial(self):
+        """Ініціалізація Serial портом"""
+        try:
+            self.serial_port = serial.Serial(
+                SERIAL_DEV,
+                baudrate=115200,
+                timeout=1
+            )
+            time.sleep(2)  # Очікування Arduino ініціалізації
+            self.serial_port.reset_input_buffer()
+            self.serial_port.reset_output_buffer()
+            logger.info(f"✅ Serial підключено: {SERIAL_DEV}")
+        except Exception as e:
+            logger.error(f"❌ Serial помилка: {e}")
+            raise
     
-    yield
+    def on_mqtt_message(self, client, userdata, msg):
+        """Обробка YOLO детекцій"""
+        if msg.topic == "arm/vision/objects":
+            try:
+                data = json.loads(msg.payload)
+                self.last_detection_time = time.time()
+                
+                # Витяг першого об'єкта
+                if data.get("objects"):
+                    obj = data["objects"][0]
+                    self.yolo_target[0] = obj.get("x", 0.0)
+                    self.yolo_target[1] = obj.get("y", 0.0)
+                    self.yolo_target[2] = obj.get("confidence", 0.0)
+                else:
+                    self.yolo_target = np.zeros(3, dtype=np.float32)
+                
+                logger.debug(f"📷 YOLO target: {self.yolo_target}")
+            except Exception as e:
+                logger.error(f"❌ MQTT parse error: {e}")
     
-    # Cleanup
-    log.info("Shutting down...")
-    if m is not None:
-        m.loop_stop()
-        m.disconnect()
-    if ser is not None and getattr(ser, "is_open", False):
-        ser.close()
+    def predict(self, observation: np.ndarray) -> np.ndarray:
+        """RL інференс"""
+        if DUMMY_MODEL:
+            # Повернути спостереження як є (тестування)
+            return observation[:6]
+        
+        try:
+            # Нормалізація
+            obs = observation.reshape(1, -1).astype(np.float32)
+            
+            # Інференс
+            self.interpreter.set_tensor(
+                self.input_details[0]['index'],
+                obs
+            )
+            self.interpreter.invoke()
+            
+            action = self.interpreter.get_tensor(
+                self.output_details[0]['index']
+            )[0]
+            
+            return action
+        except Exception as e:
+            logger.error(f"❌ Inference error: {e}")
+            return np.zeros(6, dtype=np.float32)
+    
+    def send_action(self, action: np.ndarray) -> bool:
+        """Відправка дії на Arduino"""
+        if not self.serial_port:
+            return False
+        
+        try:
+            with self.serial_lock:
+                command = {
+                    "action": action.tolist(),
+                    "timestamp": time.time()
+                }
+                
+                json_str = json.dumps(command) + '\r\n'
+                self.serial_port.write(json_str.encode())
+                
+                # Очікування ACK
+                ack_timeout = 0.75
+                start = time.time()
+                ack = ""
+                
+                while time.time() - start < ack_timeout:
+                    if self.serial_port.in_waiting:
+                        ack = self.serial_port.readline().decode().strip()
+                        if ack:
+                            break
+                    time.sleep(0.05)
+                
+                if ack == "ACK":
+                    logger.debug(f"✅ ACK отримано")
+                    return True
+                else:
+                    logger.warning(f"⚠️ Очікувалось ACK, отримано: {ack}")
+                    return False
+        except Exception as e:
+            logger.error(f"❌ Serial send error: {e}")
+            return False
+    
+    def get_state(self) -> RobotState:
+        """Отримати поточний стан"""
+        with self.serial_lock:
+            try:
+                self.serial_port.write(b'GET_STATE\r\n')
+                response = self.serial_port.readline().decode().strip()
+                
+                data = json.loads(response)
+                self.joint_angles = np.array(data.get("joint_positions", [0]*6), dtype=np.float32)
+                
+                return RobotState(
+                    joint_angles=self.joint_angles.tolist(),
+                    target_object={
+                        "x": self.yolo_target[0],
+                        "y": self.yolo_target[1],
+                        "confidence": self.yolo_target[2]
+                    } if self.yolo_target[2] > 0.5 else None
+                )
+            except Exception as e:
+                logger.error(f"❌ Get state error: {e}")
+                return RobotState(joint_angles=self.joint_angles.tolist())
+    
+    def control_loop(self):
+        """Основний цикл керування"""
+        logger.info("🚀 Запуск control loop...")
+        
+        loop_time = 0.05  # 20 Hz
+        last_time = time.time()
+        
+        while True:
+            try:
+                start = time.time()
+                
+                # Оновлення спостереження
+                self.current_state[:6] = self.joint_angles
+                self.current_state[6:9] = self.yolo_target
+                
+                # RL інференс
+                action = self.predict(self.current_state)
+                
+                # Відправка на Arduino
+                success = self.send_action(action)
+                
+                # Читання стану
+                state = self.get_state()
+                
+                # Частота
+                elapsed = time.time() - start
+                if elapsed < loop_time:
+                    time.sleep(loop_time - elapsed)
+                
+                freq = 1.0 / (time.time() - start)
+                print(f"🔄 Freq: {freq:.1f}Hz | YOLO conf: {self.yolo_target[2]:.2f}", end='\r')
+            
+            except KeyboardInterrupt:
+                logger.info("🛑 Зупинка control loop...")
+                break
+            except Exception as e:
+                logger.error(f"❌ Control loop error: {e}")
+                time.sleep(0.1)
 
+controller = None
 
-app = FastAPI(title="OPi Zero Inference", lifespan=lifespan)
-
-
-class Obs(BaseModel):
-    x: List[float]
-
+@app.on_event("startup")
+async def startup():
+    global controller
+    controller = RobotController()
+    
+    # Запуск control loop в окремому потоці
+    control_thread = Thread(target=controller.control_loop, daemon=True)
+    control_thread.start()
 
 @app.get("/healthz")
-def healthz():
+async def healthz():
+    """Health check"""
     return {
-        "model_loaded": interp is not None,
-        "model_path": MODEL_PATH,
-        "serial_open": ser is not None and ser.is_open,
-        "mqtt_connected": m is not None and m.is_connected(),
+        "status": "ok",
+        "model_loaded": controller.interpreter is not None,
+        "serial_connected": controller.serial_port is not None,
+        "mqtt_connected": controller.mqtt_client._sock is not None
     }
 
+@app.get("/state")
+async def get_robot_state():
+    """Отримати поточний стан"""
+    return controller.get_state()
 
 @app.post("/predict")
-def predict(o: Obs):
-    if interp is None and not USE_DUMMY:
-        raise HTTPException(status_code=503, detail=f"Model not loaded at {MODEL_PATH}")
-    if ser is None or not ser.is_open:
-        raise HTTPException(status_code=503, detail="Serial port is not available")
-    
-    # Inference
-    if interp is None and USE_DUMMY:
-        y, ms = o.x[:], 0.1  # «глушилка»: повертаємо вхід як вихід
-        log.debug("DUMMY mode: passthrough input as output")
-    else:
-        arr = np.array([o.x], dtype="float32")
-        # підженемо форму
-        if tuple(arr.shape) != tuple(inp["shape"]):
-            arr = arr.reshape(inp["shape"])
-        t0 = time.perf_counter()
-        interp.set_tensor(inp["index"], arr)
-        interp.invoke()
-        y = np.asarray(interp.get_output_tensor(out["index"])).tolist()[0]
-        ms = (time.perf_counter() - t0) * 1000.0
-    
-    # Формуємо команду для Arduino
-    pkt = {"seq": int(time.time() * 1000), "cmd": y}
-    payload = json.dumps(pkt, separators=(',', ':'))  # Компактний JSON
-    
-    # Відправка на Arduino
+async def predict(data: dict):
+    """
+    Ручний запит до RL моделі
+    Input: {"x": [6 joint angles або 9: joints+yolo]}
+    """
     try:
-        ser.reset_input_buffer()
-    except Exception as exc:
-        log.debug("Could not clear serial input buffer: %s", exc)
-    
-    # ВАЖЛИВО: Arduino очікує \n (не \r\n!)
-    sent = ser.write((payload + "\n").encode())
-    ser.flush()
-    
-    log.info(
-        "→ Arduino seq=%s bytes=%d cmd=%s",
-        pkt["seq"],
-        sent,
-        [round(v, 5) for v in y],
-    )
+        obs = np.array(data.get("x", [0]*9), dtype=np.float32)
+        if len(obs) == 6:
+            # Доповнити YOLO даними
+            obs = np.concatenate([obs, controller.yolo_target])
+        
+        action = controller.predict(obs)
+        success = controller.send_action(action)
+        
+        state = controller.get_state()
+        
+        return {
+            "action": action.tolist(),
+            "serial_ack": "ACK" if success else "NACK",
+            "robot_state": state.dict()
+        }
+    except Exception as e:
+        logger.error(f"❌ Predict error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
-    # Читаємо відповідь
-    ack_lines = _read_serial_ack()
-    ack_status = "unknown"
-    
-    if ack_lines:
-        for line in ack_lines:
-            log.info("← Arduino seq=%s ack=%s", pkt["seq"], line)
-            if line.startswith("OK"):
-                ack_status = "ok"
-            elif line.startswith("ERR"):
-                ack_status = "error"
-                log.error("Arduino error: %s", line)
-    else:
-        log.warning("No ack received from Arduino for seq=%s", pkt["seq"])
-        ack_status = "timeout"
-
-    # Публікуємо метрики в MQTT
-    if m is not None and m.is_connected():
-        m.publish("arm/metrics", json.dumps({
-            "latency_ms": ms,
-            "seq": pkt["seq"],
-            "ack_status": ack_status,
-        }), qos=0)
-    
+@app.get("/metrics")
+async def metrics():
+    """Метрики системи"""
     return {
-        "seq": pkt["seq"],
-        "action": y,
-        "latency_ms": ms,
-        "serial": {
-            "bytes_written": int(sent),
-            "ack": ack_lines,
-            "status": ack_status,
-        },
-    }
-
-
-@app.post("/test")
-def test_arduino():
-    """Тестовий ендпоінт для перевірки Arduino без моделі."""
-    if ser is None or not ser.is_open:
-        raise HTTPException(status_code=503, detail="Serial port is not available")
-    
-    # Нейтральна позиція (всі сервоприводи в центрі)
-    test_cmd = [0.5, 0.5, 0.5, 0.5, 0.5, 0.5]
-    pkt = {"seq": int(time.time() * 1000), "cmd": test_cmd}
-    payload = json.dumps(pkt, separators=(',', ':'))
-    
-    try:
-        ser.reset_input_buffer()
-    except Exception as exc:
-        log.debug("Could not clear serial input buffer: %s", exc)
-    
-    sent = ser.write((payload + "\n").encode())
-    ser.flush()
-    
-    log.info("→ Arduino TEST seq=%s bytes=%d", pkt["seq"], sent)
-    
-    ack_lines = _read_serial_ack()
-    
-    if ack_lines:
-        for line in ack_lines:
-            log.info("← Arduino TEST ack=%s", line)
-    
-    return {
-        "seq": pkt["seq"],
-        "command": test_cmd,
-        "serial": {
-            "bytes_written": int(sent),
-            "ack": ack_lines,
-        },
-    }
-
-
-@app.post("/raw")
-def send_raw_command(command: dict):
-    """Відправити довільну JSON команду на Arduino (arm, step, prime, setRange, cmd)."""
-    if ser is None or not ser.is_open:
-        raise HTTPException(status_code=503, detail="Serial port is not available")
-
-    payload = json.dumps(command, separators=(",", ":"))
-
-    try:
-        ser.reset_input_buffer()
-    except Exception as exc:
-        log.debug("Could not clear serial input buffer: %s", exc)
-
-    sent = ser.write((payload + "\n").encode())
-    ser.flush()
-
-    log.info("→ Arduino RAW bytes=%d cmd=%s", sent, payload)
-
-    ack_lines = _read_serial_ack()
-    ack_status = "unknown"
-
-    if ack_lines:
-        for line in ack_lines:
-            log.info("← Arduino RAW ack=%s", line)
-            if line.startswith("OK"):
-                ack_status = "ok"
-            elif line.startswith("ERR"):
-                ack_status = "error"
-                log.error("Arduino error: %s", line)
-    else:
-        log.warning("No ack received from Arduino")
-        ack_status = "timeout"
-
-    return {
-        "command": command,
-        "serial": {
-            "bytes_written": int(sent),
-            "ack": ack_lines,
-            "status": ack_status,
-        },
+        "yolo_target": controller.yolo_target.tolist(),
+        "joint_angles": controller.joint_angles.tolist(),
+        "last_detection": controller.last_detection_time
     }
