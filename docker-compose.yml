@@ -75,3 +75,28 @@ services:
       options:
         max-size: "5m"
         max-file: "2"
+
+  yolo-detector:
+    build:
+      context: ./yolo-detection
+      dockerfile: Dockerfile
+    container_name: yolo-detector
+    depends_on:
+      mqtt:
+        condition: service_started
+    environment:
+      MODEL_PATH: /detection/models/yolov8n.tflite
+      MQTT_HOST: mqtt
+      BROKER_TOPIC: arm/vision/objects
+      CAMERA_INDEX: 0
+    volumes:
+      - ./yolo-detection/models:/detection/models:ro
+    devices:
+      # Камера Logitech C170 (або будь-яка UVC камера): замініть шлях за потреби
+      - "/dev/v4l/by-id/usb-_Webcam_C170-video-index0:/dev/video0"
+    restart: unless-stopped
+    logging:
+      driver: local
+      options:
+        max-size: "5m"
+        max-file: "2"
