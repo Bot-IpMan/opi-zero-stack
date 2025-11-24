@@ -3,7 +3,19 @@ services:
   training:
     build:
       context: ./training
+    environment:
+      - TRAIN_ARGS
     volumes:
       - ./training:/workspace/training
     working_dir: /workspace/training
-    command: ["python", "train_ppo.py"]
+    command: ["sh", "-c", "python train_ppo.py ${TRAIN_ARGS}"]
+
+  tensorboard:
+    build:
+      context: ./training
+    volumes:
+      - ./training:/workspace/training
+    working_dir: /workspace/training
+    command: ["tensorboard", "--logdir", "/workspace/training/models/tb", "--host", "0.0.0.0", "--port", "6006"]
+    ports:
+      - "6006:6006"
