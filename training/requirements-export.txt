@@ -1,0 +1,6 @@
+# Extras required for exporting models to TFLite
+tensorflow
+# tflite-support bundles the runtime tools used by TensorFlow Lite
+# On some platforms the wheel is named tflite_runtime; keep support package for convenience
+# in environments where it resolves.
+tflite-support
