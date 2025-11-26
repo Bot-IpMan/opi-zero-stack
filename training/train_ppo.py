@@ -13,8 +13,21 @@ from environments.robot_arm_env import RobotArmEnv
 
 
 def build_env(n_envs: int, norm: bool = True):
-    vec_cls = DummyVecEnv if n_envs == 1 else SubprocVecEnv
-    env = make_vec_env(RobotArmEnv, n_envs=n_envs, vec_env_cls=vec_cls)
+    preferred_vec_cls = DummyVecEnv if n_envs == 1 else SubprocVecEnv
+    try:
+        env = make_vec_env(RobotArmEnv, n_envs=n_envs, vec_env_cls=preferred_vec_cls)
+    except PermissionError:
+        if preferred_vec_cls is SubprocVecEnv:
+            print("Permission denied creating SubprocVecEnv; falling back to DummyVecEnv.")
+            env = make_vec_env(RobotArmEnv, n_envs=n_envs, vec_env_cls=DummyVecEnv)
+        else:
+            raise
+    except Exception as exc:  # noqa: BLE001 - intentionally broad to catch env creation issues
+        if preferred_vec_cls is SubprocVecEnv:
+            print(f"Failed to create SubprocVecEnv ({exc}); falling back to DummyVecEnv.")
+            env = make_vec_env(RobotArmEnv, n_envs=n_envs, vec_env_cls=DummyVecEnv)
+        else:
+            raise
     if norm:
         env = VecNormalize(env, norm_obs=True, norm_reward=True, clip_obs=5.0)
     return env
