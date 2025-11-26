@@ -4,7 +4,14 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Iterable, Tuple
 
-import tensorflow as tf
+try:
+    import tensorflow as tf
+except ImportError as exc:  # pragma: no cover - requires optional dependency
+    raise SystemExit(
+        "TensorFlow is required for export. Install extras with "
+        "`pip install -r requirements-export.txt` before running this script."
+    ) from exc
+
 from stable_baselines3 import PPO
 
 
