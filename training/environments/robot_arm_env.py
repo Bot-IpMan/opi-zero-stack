@@ -51,13 +51,14 @@ class RobotArmEnv(gym.Env):
         self.step_count = 0
         self.target_pos = np.zeros(3, dtype=np.float32)
 
-        self._connect_sim()
         self.reset()
 
     # Gym API ---------------------------------------------------------------
     def reset(self, *, seed: Optional[int] = None, options: Optional[dict] = None):
         super().reset(seed=seed)
         self.step_count = 0
+
+        self._reset_world()
 
         # Random target position in reachable workspace
         rng = self.np_random
@@ -67,9 +68,21 @@ class RobotArmEnv(gym.Env):
 
         # Reset joint states
         for j in self.joint_indices:
-            p.resetJointState(self.robot_id, j, 0.0)
-            p.setJointMotorControl2(self.robot_id, j, controlMode=p.POSITION_CONTROL, targetPosition=0.0, force=2.5)
-        p.stepSimulation()
+            p.resetJointState(
+                self.robot_id,
+                j,
+                0.0,
+                physicsClientId=self.physics_client,
+            )
+            p.setJointMotorControl2(
+                self.robot_id,
+                j,
+                controlMode=p.POSITION_CONTROL,
+                targetPosition=0.0,
+                force=2.5,
+                physicsClientId=self.physics_client,
+            )
+        p.stepSimulation(physicsClientId=self.physics_client)
 
         obs = self._get_obs()
         info = {"target": self.target_pos.tolist()}
@@ -79,7 +92,10 @@ class RobotArmEnv(gym.Env):
         self.step_count += 1
 
         action = np.clip(action, self.action_space.low, self.action_space.high)
-        current_angles = np.array([p.getJointState(self.robot_id, j)[0] for j in self.joint_indices], dtype=np.float32)
+        current_angles = np.array(
+            [p.getJointState(self.robot_id, j, physicsClientId=self.physics_client)[0] for j in self.joint_indices],
+            dtype=np.float32,
+        )
         desired_angles = np.clip(current_angles + action, -self.config.joint_limit, self.config.joint_limit)
 
         for idx, joint in enumerate(self.joint_indices):
@@ -89,10 +105,11 @@ class RobotArmEnv(gym.Env):
                 controlMode=p.POSITION_CONTROL,
                 targetPosition=float(desired_angles[idx]),
                 force=3.0,
+                physicsClientId=self.physics_client,
             )
 
         for _ in range(8):
-            p.stepSimulation()
+            p.stepSimulation(physicsClientId=self.physics_client)
 
         obs = self._get_obs()
         ee_pos = self._end_effector_position()
@@ -120,24 +137,47 @@ class RobotArmEnv(gym.Env):
         if self.physics_client is None:
             mode = p.GUI if self.render_mode == "human" else p.DIRECT
             self.physics_client = p.connect(mode)
-            p.setTimeStep(1.0 / 120.0)
-            p.setGravity(0, 0, -9.8)
-            p.setAdditionalSearchPath(pybullet_data.getDataPath())
-            p.loadURDF("plane.urdf")
-            urdf_path = str(Path(__file__).resolve().parent.parent / "robot_arm.urdf")
-            self.robot_id = p.loadURDF(urdf_path, basePosition=[0, 0, 0], useFixedBase=True)
-            self.joint_indices = [
-                j
-                for j in range(p.getNumJoints(self.robot_id))
-                if p.getJointInfo(self.robot_id, j)[2] == p.JOINT_REVOLUTE
-            ]
+            p.setAdditionalSearchPath(pybullet_data.getDataPath(), physicsClientId=self.physics_client)
+
+    def _reset_world(self):
+        self._connect_sim()
+
+        p.resetSimulation(physicsClientId=self.physics_client)
+        p.setTimeStep(1.0 / 120.0, physicsClientId=self.physics_client)
+        p.setGravity(0, 0, -9.8, physicsClientId=self.physics_client)
+        p.loadURDF("plane.urdf", physicsClientId=self.physics_client)
+
+        urdf_path = str(Path(__file__).resolve().parent.parent / "robot_arm.urdf")
+        self.robot_id = p.loadURDF(
+            urdf_path,
+            basePosition=[0, 0, 0],
+            useFixedBase=True,
+            physicsClientId=self.physics_client,
+        )
+
+        self.joint_indices = [
+            j
+            for j in range(p.getNumJoints(self.robot_id, physicsClientId=self.physics_client))
+            if p.getJointInfo(self.robot_id, j, physicsClientId=self.physics_client)[2] == p.JOINT_REVOLUTE
+        ]
+
+        if len(self.joint_indices) != 6:
+            raise RuntimeError(f"Expected 6 revolute joints, found {len(self.joint_indices)} in URDF")
 
     def _get_obs(self) -> np.ndarray:
-        joint_angles = [p.getJointState(self.robot_id, j)[0] for j in self.joint_indices]
+        joint_angles = [
+            p.getJointState(self.robot_id, j, physicsClientId=self.physics_client)[0]
+            for j in self.joint_indices
+        ]
         obs = np.concatenate([np.asarray(joint_angles, dtype=np.float32), self.target_pos])
         return np.clip(obs, self.observation_space.low, self.observation_space.high)
 
     def _end_effector_position(self) -> np.ndarray:
-        ee_state = p.getLinkState(self.robot_id, self.joint_indices[-1], computeForwardKinematics=True)
+        ee_state = p.getLinkState(
+            self.robot_id,
+            self.joint_indices[-1],
+            computeForwardKinematics=True,
+            physicsClientId=self.physics_client,
+        )
         pos = np.array(ee_state[0], dtype=np.float32)
         return pos
