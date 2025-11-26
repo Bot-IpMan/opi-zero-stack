@@ -1,7 +1,6 @@
+# Core training stack
 gymnasium
 stable-baselines3
 numpy
 ultralytics
-tensorflow
-tflite-support
 pybullet
