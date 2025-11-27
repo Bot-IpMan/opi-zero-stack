@@ -162,7 +162,7 @@ class RobotArmEnv(gym.Env):
             # Перевірка на NaN
             if np.isnan(reward):
                 reward = -1.0
-            reward = np.clip(reward, -1000, 1000)
+            reward = np.clip(reward, -50, 100)
             
             terminated = self._check_success()
             truncated = self.current_step >= self.max_steps
@@ -206,16 +206,15 @@ class RobotArmEnv(gym.Env):
             return np.zeros(9, dtype=np.float32)
     
     def _compute_reward(self):
-        """Винаграда на основі близькості до цілі"""
+        """Винаграда яка дійсно вчить агента"""
         try:
-            # Перевірка видимості об'єкта
+            # Якщо об'єкт не видно - велика штрафа
             if self.yolo_target[2] < 0.5:
-                return -1.0
+                return -10.0
             
-            # Forward kinematics
             ee_pos = self._get_ee_pos()
             
-            # Ціль в світовій системі координат
+            # Ціль в світовій системі
             target_world = np.array([
                 0.15 + float(self.yolo_target[0]) * 0.25,
                 -0.2 + float(self.yolo_target[1]) * 0.4,
@@ -224,22 +223,29 @@ class RobotArmEnv(gym.Env):
             
             # Обчислення відстані
             distance = np.linalg.norm(ee_pos - target_world)
-            distance = np.clip(distance, 0, 10)
+            distance = np.clip(distance, 0, 1.0)  # Макс 1 метр
             
-            # Основна винаграда
-            reward = -distance * 10.0
+            # Винаграда за наближення (від 0 до 1)
+            proximity_reward = (1.0 - distance)
             
-            # Бонуси
+            # Бонуси за етапи
+            if distance < 0.5:
+                proximity_reward += 1.0
+            if distance < 0.2:
+                proximity_reward += 1.0
             if distance < 0.05:
-                reward += 100.0
-            elif distance < 0.1:
-                reward += 10.0
+                proximity_reward += 10.0  # УСПІХ!
             
-            reward = np.clip(reward, -1000, 1000)
-            return float(reward)
+            reward = float(proximity_reward)
+            reward = np.clip(reward, -50, 100)
+            
+            if np.isnan(reward):
+                reward = 0.0
+            
+            return reward
             
         except Exception as e:
-            print(f"⚠️  Error in reward: {e}")
+            print(f"⚠️  Reward error: {e}")
             return -1.0
     
     def _get_ee_pos(self):
