@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
-from typing import Sequence
+from typing import Optional, Sequence
 
 from stable_baselines3 import PPO
 from stable_baselines3.common.env_util import make_vec_env
@@ -53,13 +53,30 @@ def parse_args() -> argparse.Namespace:
         default=Path("models") / "tb",
         help="TensorBoard log directory (mounted to tensorboard service)",
     )
+    parser.add_argument(
+        "--disable-tensorboard",
+        action="store_true",
+        help="Skip TensorBoard logging even if the dependency is available",
+    )
     return parser.parse_args()
 
 
 def main() -> None:
     args = parse_args()
     args.model_dir.mkdir(parents=True, exist_ok=True)
-    args.tensorboard_dir.mkdir(parents=True, exist_ok=True)
+
+    tensorboard_log: Optional[str]
+    if args.disable_tensorboard:
+        tensorboard_log = None
+    else:
+        try:
+            import tensorboard as _tb  # noqa: F401
+        except ImportError:
+            print("TensorBoard is not installed; disabling logging.")
+            tensorboard_log = None
+        else:
+            args.tensorboard_dir.mkdir(parents=True, exist_ok=True)
+            tensorboard_log = str(args.tensorboard_dir)
 
     policy_net: Sequence[int] = list(args.policy_hidden_dims)
     n_steps = max(64, (2048 // args.n_envs) * args.n_envs)
@@ -76,7 +93,7 @@ def main() -> None:
         batch_size=args.batch_size,
         n_steps=n_steps,
         learning_rate=args.learning_rate,
-        tensorboard_log=str(args.tensorboard_dir),
+        tensorboard_log=tensorboard_log,
         policy_kwargs={"net_arch": [dict(pi=policy_net, vf=policy_net)]},
     )
     model.learn(total_timesteps=args.total_timesteps)
