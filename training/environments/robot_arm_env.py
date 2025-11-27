@@ -1,183 +1,277 @@
-import math
-from dataclasses import dataclass
-from pathlib import Path
-from typing import Optional, Tuple
-
 import gymnasium as gym
 import numpy as np
 import pybullet as p
 import pybullet_data
+from gymnasium import spaces
+import os
+import warnings
 
-
-@dataclass
-class ArmConfig:
-    max_steps: int = 200
-    action_scale: float = 0.05
-    target_radius: float = 0.02
-    workspace_bounds: Tuple[float, float] = (-0.35, 0.35)
-    joint_limit: float = math.pi / 2
-
+warnings.filterwarnings('ignore')
 
 class RobotArmEnv(gym.Env):
-    """PyBullet-based 6-DOF arm environment that matches README expectations.
-
-    Observation: 9 floats -> [6 joint angles, 3 target coordinates]
-    Action: 6 floats -> joint angle deltas (radians)
-    Reward: -distance_to_target with small action penalty; success bonus on reach
     """
+    6-DOF роборука з YOLO детекцією
+    Observation: [joint_positions(6), yolo_target(3)]
+    Action: [joint_angles(6)] в радіанах [-π, π]
+    """
+    metadata = {'render_modes': ['human', 'rgb_array']}
 
-    metadata = {"render_modes": []}
-
-    def __init__(self, render_mode: Optional[str] = None, config: Optional[ArmConfig] = None):
+    def __init__(self, render_mode=None, urdf_path=None):
         super().__init__()
-        self.render_mode = render_mode
-        self.config = config or ArmConfig()
-
-        self.observation_space = gym.spaces.Box(
-            low=np.array([-self.config.joint_limit] * 6 + [self.config.workspace_bounds[0]] * 3, dtype=np.float32),
-            high=np.array([self.config.joint_limit] * 6 + [self.config.workspace_bounds[1]] * 3, dtype=np.float32),
-            dtype=np.float32,
+        
+        print("🚀 Ініціалізація RobotArmEnv...")
+        
+        # Підключення до PyBullet
+        if render_mode == "human":
+            self.physics_client = p.connect(p.GUI)
+        else:
+            self.physics_client = p.connect(p.DIRECT)
+        
+        p.setAdditionalSearchPath(pybullet_data.getDataPath())
+        p.setGravity(0, 0, -9.81)
+        
+        # Action space: кути для 6 joints [-π, π]
+        self.action_space = spaces.Box(
+            low=-np.pi, high=np.pi, 
+            shape=(6,), dtype=np.float32
         )
-        self.action_space = gym.spaces.Box(
-            low=-self.config.action_scale,
-            high=self.config.action_scale,
-            shape=(6,),
-            dtype=np.float32,
+        
+        # Observation: [joints(6), yolo_target(3)]
+        self.observation_space = spaces.Box(
+            low=-np.inf, high=np.inf, 
+            shape=(9,), dtype=np.float32
         )
-
-        self.physics_client: Optional[int] = None
-        self.robot_id: Optional[int] = None
-        self.joint_indices: list[int] = []
-        self.step_count = 0
-        self.target_pos = np.zeros(3, dtype=np.float32)
-
-        self.reset()
-
-    # Gym API ---------------------------------------------------------------
-    def reset(self, *, seed: Optional[int] = None, options: Optional[dict] = None):
+        
+        # Визначення шляху до URDF
+        if urdf_path is None:
+            urdf_path = "/workspace/robot_arm.urdf"
+            if not os.path.exists(urdf_path):
+                urdf_path = "robot_arm.urdf"
+            if not os.path.exists(urdf_path):
+                urdf_path = os.path.join(
+                    os.path.dirname(__file__), 
+                    "..", 
+                    "robot_arm.urdf"
+                )
+        
+        self.urdf_path = urdf_path
+        self.robot_id = None
+        self.yolo_target = np.array([0.5, 0.5, 0.9], dtype=np.float32)
+        self.max_steps = 200
+        self.current_step = 0
+        
+        print(f"📁 URDF path: {self.urdf_path}")
+        print(f"✅ RobotArmEnv ініціалізовано")
+        
+    def reset(self, seed=None, options=None):
         super().reset(seed=seed)
-        self.step_count = 0
-
-        self._reset_world()
-
-        # Random target position in reachable workspace
-        rng = self.np_random
-        bound = self.config.workspace_bounds[1]
-        self.target_pos = rng.uniform(low=-bound, high=bound, size=3).astype(np.float32)
-        self.target_pos[2] = abs(self.target_pos[2]) + 0.05  # keep Z above the base
-
-        # Reset joint states
-        for j in self.joint_indices:
-            p.resetJointState(
-                self.robot_id,
-                j,
-                0.0,
-                physicsClientId=self.physics_client,
+        
+        try:
+            p.resetSimulation()
+            p.setGravity(0, 0, -9.81)
+            p.setPhysicsEngineParameter(numSubSteps=1)
+            
+            # Завантаження підлоги
+            p.loadURDF("plane.urdf", [0, 0, -0.1])
+            
+            # Завантаження робота
+            if not os.path.exists(self.urdf_path):
+                raise FileNotFoundError(f"URDF не знайдено: {self.urdf_path}")
+            
+            self.robot_id = p.loadURDF(
+                self.urdf_path, 
+                [0, 0, 0],
+                useFixedBase=True
             )
-            p.setJointMotorControl2(
-                self.robot_id,
-                j,
-                controlMode=p.POSITION_CONTROL,
-                targetPosition=0.0,
-                force=2.5,
-                physicsClientId=self.physics_client,
-            )
-        p.stepSimulation(physicsClientId=self.physics_client)
-
-        obs = self._get_obs()
-        info = {"target": self.target_pos.tolist()}
-        return obs, info
-
+            
+            num_joints = p.getNumJoints(self.robot_id)
+            
+            # Випадкові початкові позиції (з безпечним діапазоном)
+            for joint_id in range(min(6, num_joints)):
+                try:
+                    # Припинення обмежень для цього joint
+                    info = p.getJointInfo(self.robot_id, joint_id)
+                    lower_limit = info[8]
+                    upper_limit = info[9]
+                    
+                    # Клipping до безпечного діапазону
+                    lower_limit = max(lower_limit, -np.pi)
+                    upper_limit = min(upper_limit, np.pi)
+                    
+                    if lower_limit >= upper_limit:
+                        lower_limit = -np.pi / 2
+                        upper_limit = np.pi / 2
+                    
+                    angle = self.np_random.uniform(lower_limit, upper_limit)
+                    angle = np.clip(angle, -np.pi, np.pi)
+                    
+                    p.resetJointState(self.robot_id, joint_id, angle, 0.0)
+                except Exception as e:
+                    print(f"⚠️  Joint {joint_id}: {e}")
+            
+            # Випадкова ціль
+            self.yolo_target = np.array([
+                self.np_random.uniform(0.3, 0.7),
+                self.np_random.uniform(0.3, 0.7),
+                0.95
+            ], dtype=np.float32)
+            
+            self.current_step = 0
+            obs = self._get_obs()
+            
+            # Перевірка на NaN
+            if np.any(np.isnan(obs)):
+                print(f"⚠️  NaN в observation, замінюю на нулі")
+                obs = np.zeros(9, dtype=np.float32)
+            
+            return obs, {}
+            
+        except Exception as e:
+            print(f"❌ Помилка в reset: {e}")
+            obs = np.zeros(9, dtype=np.float32)
+            return obs, {}
+    
     def step(self, action):
-        self.step_count += 1
-
-        action = np.clip(action, self.action_space.low, self.action_space.high)
-        current_angles = np.array(
-            [p.getJointState(self.robot_id, j, physicsClientId=self.physics_client)[0] for j in self.joint_indices],
-            dtype=np.float32,
-        )
-        desired_angles = np.clip(current_angles + action, -self.config.joint_limit, self.config.joint_limit)
-
-        for idx, joint in enumerate(self.joint_indices):
-            p.setJointMotorControl2(
-                self.robot_id,
-                joint,
-                controlMode=p.POSITION_CONTROL,
-                targetPosition=float(desired_angles[idx]),
-                force=3.0,
-                physicsClientId=self.physics_client,
-            )
-
-        for _ in range(8):
-            p.stepSimulation(physicsClientId=self.physics_client)
-
-        obs = self._get_obs()
-        ee_pos = self._end_effector_position()
-        dist = float(np.linalg.norm(ee_pos - self.target_pos))
-
-        reward = -dist - 0.01 * float(np.linalg.norm(action))
-        terminated = dist < self.config.target_radius
-        if terminated:
-            reward += 1.0
-
-        truncated = self.step_count >= self.config.max_steps
-        info = {"distance": dist, "target": self.target_pos.tolist(), "ee": ee_pos.tolist()}
-        return obs, reward, terminated, truncated, info
-
-    def render(self):  # pragma: no cover - GUI not used in tests
-        return None
-
+        try:
+            # Клипування дій до безпечного діапазону
+            action = np.clip(action, -np.pi, np.pi)
+            action = np.nan_to_num(action, nan=0.0, posinf=np.pi, neginf=-np.pi)
+            
+            num_joints = p.getNumJoints(self.robot_id)
+            
+            # Застосування дій
+            for joint_id in range(min(6, num_joints)):
+                try:
+                    p.setJointMotorControl2(
+                        self.robot_id, joint_id,
+                        p.POSITION_CONTROL,
+                        targetPosition=float(action[joint_id]),
+                        force=100.0,
+                        maxVelocity=1.0
+                    )
+                except Exception as e:
+                    print(f"⚠️  Motor control error joint {joint_id}: {e}")
+            
+            # Крок симуляції
+            p.stepSimulation()
+            
+            obs = self._get_obs()
+            reward = self._compute_reward()
+            self.current_step += 1
+            
+            # Перевірка на NaN
+            if np.isnan(reward):
+                reward = -1.0
+            reward = np.clip(reward, -1000, 1000)
+            
+            terminated = self._check_success()
+            truncated = self.current_step >= self.max_steps
+            
+            return obs, float(reward), terminated, truncated, {}
+            
+        except Exception as e:
+            print(f"❌ Помилка в step: {e}")
+            obs = np.zeros(9, dtype=np.float32)
+            return obs, -1.0, False, True, {}
+    
+    def _get_obs(self):
+        """Observation: [joint_angles(6), yolo_target(3)]"""
+        try:
+            num_joints = p.getNumJoints(self.robot_id)
+            
+            joint_states = []
+            for i in range(min(6, num_joints)):
+                try:
+                    angle = p.getJointState(self.robot_id, i)[0]
+                    angle = np.clip(float(angle), -np.pi, np.pi)
+                    joint_states.append(angle)
+                except:
+                    joint_states.append(0.0)
+            
+            # Паддинг якщо менше 6 joints
+            while len(joint_states) < 6:
+                joint_states.append(0.0)
+            
+            joint_states = np.array(joint_states[:6], dtype=np.float32)
+            obs = np.concatenate([joint_states, self.yolo_target])
+            
+            # Перевірка на NaN/Inf
+            obs = np.nan_to_num(obs, nan=0.0, posinf=0.0, neginf=0.0)
+            obs = np.clip(obs, -10, 10)
+            
+            return obs
+            
+        except Exception as e:
+            print(f"⚠️  Error in _get_obs: {e}")
+            return np.zeros(9, dtype=np.float32)
+    
+    def _compute_reward(self):
+        """Винаграда на основі близькості до цілі"""
+        try:
+            # Перевірка видимості об'єкта
+            if self.yolo_target[2] < 0.5:
+                return -1.0
+            
+            # Forward kinematics
+            ee_pos = self._get_ee_pos()
+            
+            # Ціль в світовій системі координат
+            target_world = np.array([
+                0.15 + float(self.yolo_target[0]) * 0.25,
+                -0.2 + float(self.yolo_target[1]) * 0.4,
+                0.15
+            ], dtype=np.float32)
+            
+            # Обчислення відстані
+            distance = np.linalg.norm(ee_pos - target_world)
+            distance = np.clip(distance, 0, 10)
+            
+            # Основна винаграда
+            reward = -distance * 10.0
+            
+            # Бонуси
+            if distance < 0.05:
+                reward += 100.0
+            elif distance < 0.1:
+                reward += 10.0
+            
+            reward = np.clip(reward, -1000, 1000)
+            return float(reward)
+            
+        except Exception as e:
+            print(f"⚠️  Error in reward: {e}")
+            return -1.0
+    
+    def _get_ee_pos(self):
+        """Позиція end-effector"""
+        try:
+            num_joints = p.getNumJoints(self.robot_id)
+            if num_joints > 0:
+                ee_state = p.getLinkState(self.robot_id, num_joints - 1)
+                pos = np.array(ee_state[0], dtype=np.float32)
+                pos = np.clip(pos, -10, 10)
+                return pos
+        except:
+            pass
+        
+        return np.array([0.0, 0.0, 0.3], dtype=np.float32)
+    
+    def _check_success(self):
+        """Успіх = близько до цілі"""
+        try:
+            ee_pos = self._get_ee_pos()
+            target_world = np.array([
+                0.15 + float(self.yolo_target[0]) * 0.25,
+                -0.2 + float(self.yolo_target[1]) * 0.4,
+                0.15
+            ], dtype=np.float32)
+            distance = np.linalg.norm(ee_pos - target_world)
+            return distance < 0.05
+        except:
+            return False
+    
     def close(self):
-        if self.physics_client is not None:
-            p.disconnect(self.physics_client)
-            self.physics_client = None
-
-    # Helpers ---------------------------------------------------------------
-    def _connect_sim(self):
-        if self.physics_client is None:
-            mode = p.GUI if self.render_mode == "human" else p.DIRECT
-            self.physics_client = p.connect(mode)
-            p.setAdditionalSearchPath(pybullet_data.getDataPath(), physicsClientId=self.physics_client)
-
-    def _reset_world(self):
-        self._connect_sim()
-
-        p.resetSimulation(physicsClientId=self.physics_client)
-        p.setTimeStep(1.0 / 120.0, physicsClientId=self.physics_client)
-        p.setGravity(0, 0, -9.8, physicsClientId=self.physics_client)
-        p.loadURDF("plane.urdf", physicsClientId=self.physics_client)
-
-        urdf_path = str(Path(__file__).resolve().parent.parent / "robot_arm.urdf")
-        self.robot_id = p.loadURDF(
-            urdf_path,
-            basePosition=[0, 0, 0],
-            useFixedBase=True,
-            physicsClientId=self.physics_client,
-        )
-
-        self.joint_indices = [
-            j
-            for j in range(p.getNumJoints(self.robot_id, physicsClientId=self.physics_client))
-            if p.getJointInfo(self.robot_id, j, physicsClientId=self.physics_client)[2] == p.JOINT_REVOLUTE
-        ]
-
-        if len(self.joint_indices) != 6:
-            raise RuntimeError(f"Expected 6 revolute joints, found {len(self.joint_indices)} in URDF")
-
-    def _get_obs(self) -> np.ndarray:
-        joint_angles = [
-            p.getJointState(self.robot_id, j, physicsClientId=self.physics_client)[0]
-            for j in self.joint_indices
-        ]
-        obs = np.concatenate([np.asarray(joint_angles, dtype=np.float32), self.target_pos])
-        return np.clip(obs, self.observation_space.low, self.observation_space.high)
-
-    def _end_effector_position(self) -> np.ndarray:
-        ee_state = p.getLinkState(
-            self.robot_id,
-            self.joint_indices[-1],
-            computeForwardKinematics=True,
-            physicsClientId=self.physics_client,
-        )
-        pos = np.array(ee_state[0], dtype=np.float32)
-        return pos
+        try:
+            p.disconnect()
+        except:
+            pass
