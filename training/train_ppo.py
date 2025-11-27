@@ -12,6 +12,19 @@ from stable_baselines3.common.vec_env import DummyVecEnv, SubprocVecEnv, VecNorm
 from environments.robot_arm_env import RobotArmEnv
 
 
+def tensorboard_is_available() -> bool:
+    """Return True when a TensorBoard SummaryWriter implementation is importable."""
+
+    try:
+        from torch.utils.tensorboard import SummaryWriter  # noqa: F401
+    except Exception:  # noqa: BLE001 - dependency availability probe
+        try:
+            from tensorboardX import SummaryWriter  # noqa: F401
+        except Exception:  # noqa: BLE001 - dependency availability probe
+            return False
+    return True
+
+
 def build_env(n_envs: int, norm: bool = True):
     preferred_vec_cls = DummyVecEnv if n_envs == 1 else SubprocVecEnv
     try:
@@ -69,14 +82,12 @@ def main() -> None:
     if args.disable_tensorboard:
         tensorboard_log = None
     else:
-        try:
-            import tensorboard as _tb  # noqa: F401
-        except ImportError:
-            print("TensorBoard is not installed; disabling logging.")
-            tensorboard_log = None
-        else:
+        if tensorboard_is_available():
             args.tensorboard_dir.mkdir(parents=True, exist_ok=True)
             tensorboard_log = str(args.tensorboard_dir)
+        else:
+            print("TensorBoard SummaryWriter not available; disabling logging.")
+            tensorboard_log = None
 
     policy_net: Sequence[int] = list(args.policy_hidden_dims)
     n_steps = max(64, (2048 // args.n_envs) * args.n_envs)
@@ -94,7 +105,7 @@ def main() -> None:
         n_steps=n_steps,
         learning_rate=args.learning_rate,
         tensorboard_log=tensorboard_log,
-        policy_kwargs={"net_arch": [dict(pi=policy_net, vf=policy_net)]},
+        policy_kwargs={"net_arch": dict(pi=policy_net, vf=policy_net)},
     )
     model.learn(total_timesteps=args.total_timesteps)
 
