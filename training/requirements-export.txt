@@ -1,7 +1,8 @@
 stable-baselines3[extra]==2.2.1
 torch==1.13.1
 torchvision==0.14.1
-numpy==1.24.3
+# TensorFlow 2.12 supports numpy <1.24, so pin to a compatible release
+numpy==1.23.5
 # Use the CPU-only TensorFlow build to avoid GPU dependencies during export
 tensorflow-cpu==2.12.0
 tf2onnx==1.14.0
