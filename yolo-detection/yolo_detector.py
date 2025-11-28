@@ -100,8 +100,16 @@ def run_inference(interpreter: Any, frame: np.ndarray) -> dict[str, Any]:
 
 def publish_detections(payload: dict[str, Any]) -> None:
     message = json.dumps(payload)
-    publish.single(BROKER_TOPIC, payload=message, hostname=BROKER_HOST)
-    log.info("Published detections to %s (%d detections)", BROKER_TOPIC, len(payload.get("detections", [])))
+    try:
+        publish.single(BROKER_TOPIC, payload=message, hostname=BROKER_HOST)
+        log.info(
+            "Published detections to %s (%d detections)",
+            BROKER_TOPIC,
+            len(payload.get("detections", [])),
+        )
+    except Exception:
+        # Падіння брокера не має зупиняти детектор — просто попереджаємо користувача.
+        log.exception("Failed to publish detections to MQTT broker %s", BROKER_HOST)
 
 
 def main() -> None:
