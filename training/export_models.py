@@ -56,6 +56,13 @@ def export_ppo_to_tflite(model_path: Path, output_path: Path, input_dim: int = 9
     ppo = PPO.load(model_path, device="cpu")
     keras_model = _build_ppo_tf_model(ppo, input_dim, action_dim)
 
+    # Validate output size early to avoid exporting a broken graph.
+    last_layer = keras_model.layers[-1]
+    if not isinstance(last_layer, tf.keras.layers.Dense) or last_layer.units != action_dim:
+        raise SystemExit(
+            f"Expected final Dense layer with {action_dim} units, got {getattr(last_layer, 'units', 'unknown')}"
+        )
+
     concrete_fn = tf.function(lambda x: keras_model(x)).get_concrete_function(
         tf.TensorSpec([None, input_dim], tf.float32)
     )
@@ -99,7 +106,13 @@ def main() -> None:
     models_dir.mkdir(exist_ok=True)
 
     export_ppo_to_tflite(models_dir / "ppo_model.zip", models_dir / "ppo_model.tflite")
-    copy_or_create_yolo(Path("yolov8n.tflite"), models_dir / "yolov8n.tflite")
+
+    # Prefer an existing YOLO artifact inside the models directory; otherwise fall back
+    # to a sibling yolov8n.tflite or a generated dummy placeholder.
+    yolo_source = models_dir / "yolov8n.tflite"
+    if not yolo_source.exists():
+        yolo_source = Path("yolov8n.tflite")
+    copy_or_create_yolo(yolo_source, models_dir / "yolov8n.tflite")
 
 
 if __name__ == "__main__":
