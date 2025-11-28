@@ -33,12 +33,22 @@ DUMMY_MODE = os.getenv("DUMMY_DETECTIONS", "0") == "1"
 
 
 def load_model(model_path: Path) -> Any:
-    if DUMMY_MODE or Interpreter is None:
+    if DUMMY_MODE:
         log.warning("Running in dummy detection mode")
         return None
+
+    if Interpreter is None:
+        raise SystemExit(
+            "tflite_runtime is not available. Install it or set DUMMY_DETECTIONS=1 "
+            "to run in placeholder mode."
+        )
+
     if not model_path.exists():
-        log.error("YOLO model not found at %s", model_path)
-        return None
+        raise SystemExit(
+            f"YOLO model not found at {model_path}. Provide a valid model file or set "
+            "DUMMY_DETECTIONS=1 for synthetic detections."
+        )
+
     interpreter = Interpreter(model_path=str(model_path))
     interpreter.allocate_tensors()
     log.info("Loaded YOLO model %s", model_path)
