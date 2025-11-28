@@ -1,6 +1,8 @@
-# Extras required for exporting models to TFLite
-tensorflow
-# tflite-support bundles the runtime tools used by TensorFlow Lite
-# On some platforms the wheel is named tflite_runtime; keep support package for convenience
-# in environments where it resolves.
-tflite-support
+stable-baselines3[extra]==2.2.1
+torch==1.13.1
+torchvision==0.14.1
+numpy==1.24.3
+tensorflow==2.12.0
+tf2onnx==1.14.0
+onnx==1.14.0
+onnxruntime==1.16.0
