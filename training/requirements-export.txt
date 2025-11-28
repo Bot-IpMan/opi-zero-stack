@@ -2,7 +2,8 @@ stable-baselines3[extra]==2.2.1
 torch==1.13.1
 torchvision==0.14.1
 numpy==1.24.3
-tensorflow==2.12.0
+# Use the CPU-only TensorFlow build to avoid GPU dependencies during export
+tensorflow-cpu==2.12.0
 tf2onnx==1.14.0
 onnx==1.14.0
 onnxruntime==1.16.0

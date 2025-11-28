@@ -19,7 +19,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Встановлення залежностей для експорту
 COPY requirements-export.txt .
-RUN pip install --no-cache-dir -r requirements-export.txt || true
+RUN pip install --no-cache-dir -r requirements-export.txt
 
 COPY . .
 RUN mkdir -p models logs tensorboard
