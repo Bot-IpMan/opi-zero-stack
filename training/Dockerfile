@@ -1,16 +1,27 @@
+# training/Dockerfile
+
 FROM python:3.10-slim
 
-WORKDIR /workspace/training
-COPY requirements.txt ./
+WORKDIR /training
 
-# Use CPU-only PyTorch wheels to avoid hardware-specific instructions that can
-# crash on constrained devices (e.g., "Illegal instruction").
-ARG TORCH_INDEX_URL=https://download.pytorch.org/whl/cpu
-ARG TORCH_VERSION=2.3.1
-RUN pip install --no-cache-dir --upgrade pip \
-    && pip install --no-cache-dir --index-url ${TORCH_INDEX_URL} \
-        torch==${TORCH_VERSION} torchvision==0.18.1 torchaudio==${TORCH_VERSION} \
-    && pip install --no-cache-dir -r requirements.txt
+RUN apt-get update && apt-get install -y \
+    libgl1 \
+    libglib2.0-0 \
+    libsm6 \
+    libxext6 \
+    libxrender-dev \
+    libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Встановлення залежностей для навчання
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Встановлення залежностей для експорту
+COPY requirements-export.txt .
+RUN pip install --no-cache-dir -r requirements-export.txt || true
 
 COPY . .
+RUN mkdir -p models logs tensorboard
+
 CMD ["python", "train_ppo.py"]
