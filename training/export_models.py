@@ -47,6 +47,12 @@ def _build_ppo_tf_model(model: PPO, input_dim: int, action_dim: int) -> tf.keras
 
 
 def export_ppo_to_tflite(model_path: Path, output_path: Path, input_dim: int = 9, action_dim: int = 6) -> None:
+    if not model_path.exists():
+        raise SystemExit(
+            f"PPO checkpoint {model_path} is missing. Train the model before exporting or "
+            "point --model-path to an existing .zip file."
+        )
+
     ppo = PPO.load(model_path, device="cpu")
     keras_model = _build_ppo_tf_model(ppo, input_dim, action_dim)
 
