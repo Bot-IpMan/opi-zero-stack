@@ -395,6 +395,9 @@ make export
 docker compose -f docker-compose.train.yml run --rm training python export_models.py
 ```
 
+> ℹ️ За замовчуванням використовується `training/models/ppo_model.zip`. Якщо у вас інший чекпойнт,
+> передайте шлях через `--ppo-model`.
+
 Результат у `training/models/`:
 - `ppo_model.tflite` (≈200 KB) – для Orange Pi Zero.
 - `yolov8n.tflite` (≈3 MB) – для Orange Pi PC.
