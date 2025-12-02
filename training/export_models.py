@@ -69,12 +69,22 @@ if __name__ == "__main__":
     import argparse
     
     parser = argparse.ArgumentParser()
-    parser.add_argument("--ppo-model", required=True, help="Шлях до .zip моделі PPO")
-    parser.add_argument("--output", default="model.onnx")
+    parser.add_argument(
+        "--ppo-model",
+        default="models/ppo_model.zip",
+        help="Шлях до .zip моделі PPO (за замовчуванням models/ppo_model.zip)",
+    )
+    parser.add_argument("--output", default="models/ppo_model.onnx")
     
     args = parser.parse_args()
     
     # Експорт PPO
+    if not os.path.isfile(args.ppo_model):
+        raise FileNotFoundError(
+            f"Не знайдено PPO модель за шляхом: {args.ppo_model}. "
+            "Запустіть `make train` або вкажіть свій шлях через --ppo-model"
+        )
+
     export_ppo_to_onnx(args.ppo_model, args.output)
     
     # YOLO вже готова
