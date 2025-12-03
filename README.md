@@ -2,7 +2,7 @@
 
 Розподілена система керування 6-DOF роботизованою рукою з використанням компʼютерного зору та навчанням з підкріпленням.
 
-**Архітектура**: ПК (навчання) → Orange Pi PC (YOLO детекція) → Orange Pi Zero (RL контроль) → Arduino Mega → Роборука
+**Архітектура**: ПК (навчання) → Orange Pi Zero (YOLO детекція + RL контроль) → Arduino Mega → Роборука
 
 ---
 
@@ -13,7 +13,7 @@
 3. [Вимоги](#вимоги)
 4. [Встановлення](#встановлення)
 5. [Навчання (ПК)](#навчання-пк)
-6. [Розгортання (Orange Pi)](#розгортання-orange-pi)
+6. [Розгортання (Orange Pi Zero)](#розгортання-orange-pi-zero)
 7. [Запуск](#запуск)
 8. [Діагностика](#діагностика)
 9. [Структура проекту](#структура-проекту)
@@ -36,7 +36,7 @@
 - ✅ **Система навчається** самостійно через Reinforcement Learning (RL)
 - ✅ **Розпізнає об'єкти** з камери через YOLO (You Only Look Once)
 - ✅ **Мінімальні ресурси**: Orange Pi Zero (512MB RAM!)
-- ✅ **Швидкий контроль**: 20 Hz на Orange Pi Zero, 30 FPS на Orange Pi PC
+- ✅ **Швидкий контроль**: 20 Hz RL + 20–25 FPS YOLO на одному Orange Pi Zero
 
 ### Практичні приклади використання:
 
@@ -70,18 +70,13 @@
                    │
         ┌──────────┴──────────┐
         │                     │
-┌───────▼────────────┐ ┌─────▼──────────────┐
-│ 🍊 Orange Pi PC    │ │ 🍊 Orange Pi Zero  │
-│ (2GB RAM)          │ │ (512MB RAM)        │
-│                    │ │                    │
-│ • YOLO (TFLite)    │ │ • RL (TFLite)      │
-│ • 30 FPS           │ │ • 20 Hz            │
-│ • Камера           │ │ • Serial ↔ Arduino │
-└─────┬──────────────┘ │ • MQTT subscribe   │
-      │                └────────┬───────────┘
-      │                         │
-      └─────── MQTT ────────────┘
-              (детекції)
+┌───────▼─────────────────────────────────────┐
+│ 🍊 Orange Pi Zero (512MB)                   │
+│ • YOLO (TFLite, камера USB)                 │
+│ • RL (TFLite)                               │
+│ • MQTT broker (всередині Docker)            │
+│ • Serial ↔ Arduino                          │
+└───────────────┬────────────────────────────┘
                 │
                 ↓
 ┌──────────────────────────────────────────────┐
@@ -151,12 +146,11 @@ model.tflite (200KB) ← готово для Orange Pi
 | Компонент | Де | Вимоги | Навіщо |
 |-----------|-----|--------|---------|
 | **ПК** | Для навчання | GPU (NVIDIA 4GB+), CPU (8+ cores), 16GB RAM | Швидке PPO навчання |
-| **Orange Pi PC** | Постійно запущений | 2GB RAM, 4-core ARM | YOLO детекція 30 FPS |
-| **Orange Pi Zero** | Постійно запущений | 512MB RAM, 1.2GHz ARM | RL inference 20 Hz |
+| **Orange Pi Zero** | Постійно запущений | 512MB RAM, 1.2GHz ARM | YOLO + RL інференс |
 | **Arduino Mega 2560** | Постійно запущений | 16MHz, 8KB RAM | Контроль моторів |
 | **PCA9685** | На Arduino | I2C servo driver | 16x PWM каналів |
 | **6x Servo** | Роборука | 3-5V, torque 10+ kg·cm | Приводи joints |
-| **Logitech C170** | На Orange Pi PC | USB камера | Детекція об'єктів |
+| **Logitech C170** | На Orange Pi Zero | USB камера | Детекція об'єктів |
 
 ### Software:
 
@@ -173,7 +167,7 @@ model.tflite (200KB) ← готово для Orange Pi
 
 ### Мережа:
 
-- ПК та обидва Orange Pi в **одній локальній мережі** (WiFi або Ethernet)
+- ПК та Orange Pi Zero в **одній локальній мережі** (WiFi або Ethernet)
 - Мінімальна затримка: < 100ms для MQTT
 
 ---
@@ -182,7 +176,7 @@ model.tflite (200KB) ← готово для Orange Pi
 
 ### Крок 1: Клонування репозиторію
 
-**На ПК та обох Orange Pi:**
+**На ПК та Orange Pi Zero:**
 
 ```bash
 git clone https://github.com/your-org/opi-zero-stack.git
@@ -197,7 +191,7 @@ ls -la
 
 # Мають бути:
 # training/          # ПК: навчання
-# yolo-detection/    # Orange Pi PC: детекція
+# yolo-detection/    # Orange Pi Zero: YOLO детекція
 # app/               # Orange Pi Zero: RL контроль
 # firmware/          # Arduino код
 # mosquitto/         # MQTT конфіг
@@ -255,7 +249,7 @@ sudo apt install arduino-core
 sudo reboot
 ```
 
-### Крок 5: Камера на Orange Pi PC
+### Крок 5: Камера на Orange Pi Zero
 
 ```bash
 # Перевірити камеру
@@ -400,7 +394,7 @@ docker compose -f docker-compose.train.yml run --rm training python export_model
 
 Результат у `training/models/`:
 - `ppo_model.tflite` (≈200 KB) – для Orange Pi Zero.
-- `yolov8n.tflite` (≈3 MB) – для Orange Pi PC.
+- `yolov8n.tflite` (≈3 MB) – для Orange Pi Zero (YOLO).
 - `ppo_model.zip` – повний чекпойнт для резервних копій або повторного експорту.
 
 Перевірити файли:
@@ -468,398 +462,72 @@ tar -czf model_backup_$(date +%Y%m%d).tar.gz training/models/ppo_model.zip
 tar -xzf model_backup_*.tar.gz
 make export  # оновити TFLite після відновлення
 ```
-## 🍊 Розгортання (Orange Pi)
+## 🍊 Розгортання (Orange Pi Zero)
 
-### Чому розділено?
+Усі сервіси (MQTT, YOLO, RL) працюють на **одному** Orange Pi Zero.
 
-| Пристрій | RAM | Завдання | Чому |
-|----------|-----|----------|------|
-| **Orange Pi PC** | 2GB | YOLO (30 FPS) | YOLO = 3MB модель, потребує більше RAM |
-| **Orange Pi Zero** | 512MB | RL (20 Hz) | RL = 200KB, мала й легка |
+### Що потрібно підготувати на Orange Pi Zero
 
-### На Orange Pi PC (детекція):
+1. **Docker і docker compose** (Armbian уже містить compose):
+   ```bash
+   curl -fsSL https://get.docker.com -o get-docker.sh
+   sudo bash get-docker.sh
+   sudo usermod -aG docker orangepi
+   docker --version
+   docker compose --version
+   ```
+2. **Камера**: переконайтесь, що вона видно як `/dev/v4l/by-id/...` або `/dev/video0`.
+   ```bash
+   ls -la /dev/v4l/by-id/
+   ```
+3. **Arduino**: переконайтесь, що воно зʼявляється в `/dev/serial/by-id/`.
+   ```bash
+   ls -la /dev/serial/by-id/
+   ```
+4. **Моделі**: скопіюйте `training/models/yolov8n.tflite` у `yolo-detection/models/` та `training/models/model.tflite` у `app/`.
+   ```bash
+   scp training/models/yolov8n.tflite orangepi@<OPI_ZERO_IP>:~/opi-zero-stack/yolo-detection/models/
+   scp training/models/model.tflite orangepi@<OPI_ZERO_IP>:~/opi-zero-stack/app/model.tflite
+   ```
 
-#### Кроки:
-
-1. **Копіювання YOLO моделі:**
-
-```bash
-# На ПК (де навчали):
-scp training/models/yolov8n.tflite orangepi@192.168.1.100:~/opi-zero-stack/yolo-detection/models/
-
-# Замінити 192.168.1.100 на IP Orange Pi PC
-```
-
-2. **Запуск YOLO сервісу:**
-
-```bash
-# На Orange Pi PC:
-cd opi-zero-stack
-
-# Збудувати образ
-docker compose build yolo-detector
-
-# Запустити
-docker compose up -d yolo-detector
-
-# Перевірити логи
-docker compose logs -f yolo-detector
-```
-
-**Очікуваний вивід:**
-```
-🎥 YOLO TFLite Detector ініціалізовано
-🚀 Детекція запущена
-📷 3 об'єктів | Inference: 45.2ms
-📷 2 об'єктів | Inference: 38.1ms
-```
-
-3. **Перевірка MQTT:**
+### Запуск усіх сервісів
 
 ```bash
-# На Orange Pi PC (у іншому терміналі):
-docker compose exec mqttc mosquitto_sub -h mqtt -t 'arm/vision/objects' -v
+cd ~/opi-zero-stack
 
-# Очікуваний вивід:
-# arm/vision/objects {"timestamp": 1234567890, "objects": [{"x": 0.45, "y": 0.52, "confidence": 0.89}], "inference_time_ms": 45.2}
-```
-
----
-
-### 🍊 Orange Pi PC: Детальна інструкція
-
-**Коротко:** `Камера → YOLO (30 FPS) → MQTT publish (arm/vision/objects)`
-
-```text
-Камера → YOLO (30 FPS) → MQTT publish
-                         arm/vision/objects
-                         {"x": 0.45, "y": 0.52, ...}
-```
-
-#### Крок 0: Перевірка обладнання
-
-```bash
-ssh orangepi@192.168.1.100    # пароль: orangepi (якщо не змінювали)
-cat /etc/os-release           # Armbian 25.8 або Debian 12
-ping 8.8.8.8                  # перевірити інтернет
-ls -la /dev/v4l/by-id/        # камера має бути видна
-```
-
-Якщо камери немає:
-
-```bash
-sudo modprobe -r uvcvideo && sleep 2 && sudo modprobe uvcvideo
-ls -la /dev/v4l/by-id/
-```
-
-#### Крок 1: Встановлення Docker
-
-```bash
-curl -fsSL https://get.docker.com -o get-docker.sh
-sudo bash get-docker.sh
-docker --version
-sudo usermod -aG docker orangepi
-sudo reboot
-```
-
-Після перезавантаження:
-
-```bash
-docker ps  # має працювати без sudo
-```
-
-#### Крок 2: Встановлення docker-compose
-
-```bash
-sudo curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
-sudo chmod +x /usr/local/bin/docker-compose
-docker compose --version
-```
-
-#### Крок 3: Клонування проекту
-
-```bash
-cd ~
-git clone https://github.com/your-org/opi-zero-stack.git
-cd opi-zero-stack
-ls -la                      # має бути yolo-detection/, app/, mosquitto/, docker-compose.yml
-ls -la yolo-detection/
-ls -la docker-compose.yml
-```
-
-#### Крок 4: Копіювання YOLO моделі
-
-На ПК (де навчали):
-
-```bash
-ls -lh training/models/yolov8n.tflite  # ≈3MB
-scp training/models/yolov8n.tflite orangepi@192.168.1.100:~/opi-zero-stack/yolo-detection/models/
-```
-
-На Orange Pi PC:
-
-```bash
-ls -la yolo-detection/models/  # -rw-r--r-- 3.1M yolov8n.tflite
-```
-
-#### Крок 5: Перевірка Mosquitto (MQTT брокер)
-
-```bash
-cat docker-compose.yml | grep -A 10 "mqtt:"
-# mqtt:
-#   image: eclipse-mosquitto:2
-#   ports: ["1883:1883"]
-```
-
-#### Крок 6: Запуск MQTT + YOLO
-
-```bash
-pwd  # /home/orangepi/opi-zero-stack
-docker compose up -d
-docker compose ps
-# mqtt            Up
-# yolo-detector   Up
-# mqttc           Up
-```
-
-Якщо помилка:
-
-```bash
-docker compose down
-docker system prune -a
+# Зібрати образи та підняти сервіси
 docker compose up -d --build
-```
 
-#### Крок 7: Перевірка логів YOLO
-
-```bash
-docker compose logs -f yolo-detector
-# 🎥 YOLO TFLite Detector ініціалізовано
-# 🚀 Детекція запущена
-# 📷 3 об'єктів | Inference: 45.2ms
-# 📷 2 об'єктів | Inference: 38.1ms
-```
-
-Помилка про камеру → перевірити `ls /dev/v4l/by-id/` або перезавантажити USB модуль (`sudo modprobe -r uvcvideo && sleep 2 && sudo modprobe uvcvideo`).
-
-#### Крок 8: Перевірка MQTT публікацій
-
-```bash
-docker compose exec mqttc mosquitto_sub -h mqtt -t 'arm/#' -v
-# arm/vision/objects {"timestamp": 1732000000, "objects": [...], "inference_time_ms": 45.2}
-```
-
-#### Що зʼявляється на Orange Pi PC
-
-```bash
+# Перевірити, що всі запущені
 docker compose ps
-# eclipse-mosquitto:2  (MQTT)
-# robotarm-yolo:latest (YOLO)
-# alpine:3.20          (MQTT tools)
-
-# MQTT конфіг: mosquitto/config/mosquitto.conf
-# MQTT дані:  mosquitto/data/
-# MQTT логи:  mosquitto/log/
-# YOLO модель: yolo-detection/models/yolov8n.tflite
 ```
 
-#### 🧪 Тестування на Orange Pi PC
+Очікувано побачите `mqtt`, `yolo-detector`, `robot-app`, `mqttc` зі статусом `Up`.
+
+### Перевірка роботи
+
+1. **Логи YOLO та RL**
+   ```bash
+   docker compose logs -f yolo-detector
+   docker compose logs -f app
+   ```
+2. **MQTT трафік**
+   ```bash
+   docker compose exec mqttc mosquitto_sub -h mqtt -t 'arm/vision/objects' -v
+   ```
+3. **Health RL-сервісу**
+   ```bash
+   curl http://localhost:8000/healthz
+   ```
+
+### Якщо камера або Arduino підʼєднані після старту
 
 ```bash
-# Тест 1: TFLite + модель
-docker compose exec yolo-detector python -c "import tflite_runtime.interpreter as tflite; print('✅ TFLite runtime OK'); tflite.Interpreter(model_path='/detection/models/yolov8n.tflite'); print('✅ YOLO модель завантажена')"
-
-# Тест 2: Камера
-docker compose exec yolo-detector python -c "import cv2; cap = cv2.VideoCapture('/dev/video0'); print(f'✅ Камера відкрита: {cap.isOpened()}'); ret, frame = cap.read(); print(f'✅ Кадр прочитаний: {frame.shape}'); cap.release()"
-
-# Тест 3: MQTT
-docker compose exec mqttc mosquitto_pub -h mqtt -t "test/message" -m "Hello from Orange Pi PC"
-docker compose exec mqttc mosquitto_sub -h mqtt -t "test/message"
+docker compose restart yolo-detector
+docker compose restart app
 ```
 
-#### 🚀 Повний workflow на Orange Pi PC
-
-```bash
-# День 1: Встановлення
-ssh orangepi@192.168.1.100
-curl -fsSL https://get.docker.com -o get-docker.sh
-sudo bash get-docker.sh
-sudo usermod -aG docker orangepi
-sudo reboot
-sudo curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
-sudo chmod +x /usr/local/bin/docker-compose
-cd ~ && git clone https://github.com/your-org/opi-zero-stack.git && cd opi-zero-stack
-
-# День 2: Копіювання моделей
-scp training/models/yolov8n.tflite orangepi@192.168.1.100:~/opi-zero-stack/yolo-detection/models/
-ls -la yolo-detection/models/
-
-# День 3: Запуск
-docker compose up -d
-docker compose ps
-docker compose logs -f yolo-detector
-docker compose exec mqttc mosquitto_sub -h mqtt -t 'arm/#' -v
-```
-
-#### ⚠️ Типові проблеми та рішення
-
-- Docker не встановлюється → `sudo apt update && sudo apt install -y curl` та повторити інсталяцію.
-- Камера не видна → `sudo reboot` або `sudo modprobe -r uvcvideo && sleep 2 && sudo modprobe uvcvideo`; додатково `sudo apt install -y v4l-utils && v4l2-ctl --list-devices`.
-- YOLO падає з памʼяті → перезапустити контейнер або зменшити розмір кадру у `yolo-detection/yolo_detector.py` (320×240 → 160×120) та перебудувати образ (`docker compose build --no-cache yolo-detector`).
-- MQTT не публікує → перевірити логи `docker compose logs mqtt`, перезапустити `docker compose restart mqtt`, пересвідчитись у темі `docker compose exec mqttc mosquitto_sub -h mqtt -t 'arm/vision/objects'`.
-- Інференс >100ms → зменшити розміри входу (320×240 → 160×120), знизити FPS (30 → 15) або перезавантажити систему.
-
-#### 🛠️ Налаштування
-
-- **MQTT IP:** дізнатись IP `hostname -I` і за потреби вказати його на Orange Pi Zero (`MQTT_HOST` у `docker-compose.yml`).
-- **Розміри зображення YOLO:** у `yolo-detection/yolo_detector.py` змінити `cv2.CAP_PROP_FRAME_WIDTH`/`HEIGHT` (менше = швидше).
-- **Порт MQTT:** у `docker-compose.yml` секція `mqtt` → `ports: ["1883:1883"]` (можна змінити на інший).
-
-#### 📊 Моніторинг Orange Pi PC
-
-```bash
-docker compose stats --no-stream  # CPU/пам'ять контейнерів
-cat /sys/class/thermal/thermal_zone0/temp  # температура CPU (45000 = 45°C)
-```
-
-#### 🎯 Формат MQTT повідомлень
-
-Тема: `arm/vision/objects`
-
-```json
-{
-  "timestamp": 1732000000.123,
-  "objects": [
-    {"x": 0.45, "y": 0.52, "confidence": 0.89, "class": "cup"},
-    {"x": 0.23, "y": 0.71, "confidence": 0.76, "class": "bottle"}
-  ],
-  "inference_time_ms": 45.2
-}
-```
-
-**Checklist:** Docker встановлено, docker-compose працює, камера видна, модель скопійована (≈3MB), `docker compose ps` показує `mqtt`, `yolo-detector`, `mqttc`, логи YOLO йдуть, `mosquitto_sub` бачить повідомлення – Orange Pi PC готова.
-
-### На Orange Pi Zero (RL контроль):
-
-#### Кроки:
-
-1. **Копіювання RL моделі:**
-
-```bash
-# На ПК (де навчали):
-scp training/models/ppo_model.tflite orangepi@192.168.1.101:~/opi-zero-stack/app/model.tflite
-
-# Замінити 192.168.1.101 на IP Orange Pi Zero
-```
-
-2. **Оновлення конфігурації:**
-
-```bash
-# На Orange Pi Zero:
-cd opi-zero-stack/app
-
-# Відредагувати docker-compose.yml
-# Змінити DUMMY_MODEL="1" на DUMMY_MODEL="0"
-```
-
-3. **Запуск RL сервісу:**
-
-```bash
-# На Orange Pi Zero:
-cd opi-zero-stack
-
-# Збудувати образ
-docker compose build app
-
-# Запустити
-docker compose up -d app
-
-# Перевірити логи
-docker compose logs -f app
-```
-
-**Очікуваний вивід:**
-```
-✅ RobotController ініціалізовано
-✅ Model: /app/model.tflite
-✅ Serial: /dev/ttyACM0
-✅ MQTT connected
-🚀 Control loop...
-🔄 20.1Hz | YOLO: 0.89
-```
-
-4. **Перевірка здоров'я:**
-
-```bash
-# На Orange Pi Zero (або з ПК):
-curl http://192.168.1.101:8000/healthz
-
-# Очікуваний вивід:
-# {"status":"ok","model_loaded":true,"serial_connected":true}
-```
-
----
-
-## 🚀 Запуск
-
-### Повна інициалізація (перший раз):
-
-**На ПК:**
-```bash
-# 1. Навчання (~3 години)
-make train
-
-# 2. Моніторинг (у іншому терміналі)
-make tensorboard
-
-# 3. Коли готово → експорт
-make export
-```
-
-**На Orange Pi PC:**
-```bash
-# 4. Запуск YOLO
-docker compose up -d yolo-detector
-docker compose logs -f yolo-detector
-```
-
-**На Orange Pi Zero:**
-```bash
-# 5. Запуск RL
-docker compose up -d app
-docker compose logs -f app
-```
-
-**Перевірка:**
-```bash
-# На Orange Pi Zero:
-make healthz
-make test-predict
-```
-
-### Постійний запуск:
-
-**На обох Orange Pi:**
-
-```bash
-# Запустити все
-docker compose up -d
-
-# Перевірити статус
-docker compose ps
-
-# Logи
-docker compose logs -f
-
-# Зупинити все
-docker compose down
-```
-
----
-
-## 🔍 Діагностика
-
-### Проблема 1: YOLO не запускається на Orange Pi PC
+### Проблема 1: YOLO не запускається на Orange Pi Zero
 
 ```bash
 # Перевірити образ
@@ -883,7 +551,7 @@ ls -la app/model.tflite
 
 # Має бути cerca 200KB
 # Якщо немає:
-scp training/models/ppo_model.tflite orangepi@192.168.1.101:~/opi-zero-stack/app/model.tflite
+scp training/models/ppo_model.tflite orangepi@<OPI_ZERO_IP>:~/opi-zero-stack/app/model.tflite
 
 # Перезапустити
 docker compose restart app
@@ -915,9 +583,9 @@ docker compose logs mqtt
 docker compose exec mqttc mosquitto_sub -h mqtt -t 'arm/#' -v
 
 # Якщо не видно:
-# 1. Перевірити IP Orange Pi PC та Zero (мають бути в одній мережі)
-# 2. ping 192.168.1.100 з Orange Pi Zero
-# 3. Перезапустити MQTT: docker compose restart mqtt
+# 1. Переконайтесь, що всі контейнери запущені: docker compose ps
+# 2. Перезапустіть брокер: docker compose restart mqtt
+# 3. Перевірте, що публікації йдуть з YOLO: docker compose logs yolo-detector | tail -20
 ```
 
 ### Команди діагностики:
@@ -962,11 +630,11 @@ opi-zero-stack/
 │   ├── models/
 │   │   ├── ppo_model.zip           (PyTorch, 500MB, виходить тільки після train)
 │   │   ├── ppo_model.tflite        (200KB, для Orange Pi Zero)
-│   │   └── yolov8n.tflite          (3MB, для Orange Pi PC)
+│   │   └── yolov8n.tflite          (3MB, для Orange Pi Zero)
 │   ├── tensorboard/                (TensorBoard логи)
 │   └── logs/
 │
-├── 📁 yolo-detection/              🍊 Orange Pi PC: Детекція
+├── 📁 yolo-detection/              🍊 Orange Pi Zero: Детекція
 │   ├── Dockerfile
 │   ├── requirements.txt             (TFLite, OpenCV, MQTT)
 │   ├── yolo_detector.py            (YOLO inference + MQTT)
@@ -1003,8 +671,8 @@ opi-zero-stack/
 - Після навчання моделі копіюються на Orange Pi
 
 **yolo-detection/**
-- Запускається на Orange Pi PC
-- Читає з камери 30 FPS
+- Запускається на Orange Pi Zero
+- Читає з камери 20–25 FPS
 - Запускає YOLO TFLite
 - Публікує детекції в MQTT
 
@@ -1021,8 +689,8 @@ opi-zero-stack/
 - Керує сервоприводами через PCA9685
 
 **mosquitto/**
-- MQTT брокер (як посередник між Orange Pi PC та Zero)
-- Дозволяє їм комунікувати
+- MQTT брокер усередині Orange Pi Zero
+- Дозволяє компонентам комунікувати всередині однієї плати
 
 ---
 
@@ -1071,7 +739,7 @@ Value Loss: 0.23
 └─ Менше = краще прогнозування
 ```
 
-### YOLO детекція (на Orange Pi PC):
+### YOLO детекція (на Orange Pi Zero):
 
 ```
 Inference: 45.2ms
@@ -1117,7 +785,7 @@ make train -- --n-envs 8        # більше parallelних環境ів
 make train -- --batch-size 128  # більший batch
 ```
 
-### Якщо YOLO запускається повільно на Orange Pi PC:
+### Якщо YOLO запускається повільно на Orange Pi Zero:
 
 ```bash
 # У yolo-detection/yolo_detector.py
@@ -1229,16 +897,13 @@ make export
 
 ```bash
 # Ранок: Копіювання моделей
-scp training/models/*.tflite orangepi@192.168.1.100:~/opi-zero-stack/yolo-detection/models/
-scp training/models/ppo_model.tflite orangepi@192.168.1.101:~/opi-zero-stack/app/model.tflite
+scp training/models/*.tflite orangepi@<OPI_ZERO_IP>:~/opi-zero-stack/yolo-detection/models/
+scp training/models/ppo_model.tflite orangepi@<OPI_ZERO_IP>:~/opi-zero-stack/app/model.tflite
 
-# День: Запуск на Orange Pi PC та Zero
-ssh orangepi@192.168.1.100
-docker compose up -d yolo-detector
+# День: Запуск на Orange Pi Zero
+ssh orangepi@<OPI_ZERO_IP>
+docker compose up -d
 docker compose logs -f yolo-detector
-
-ssh orangepi@192.168.1.101
-docker compose up -d app
 docker compose logs -f app
 
 # Вечір: Тестування
@@ -1357,7 +1022,7 @@ sudo reboot
 ### Помилка 5: "YOLO inference дуже повільна"
 
 ```bash
-# На Orange Pi PC перевірити:
+# На Orange Pi Zero перевірити:
 docker compose exec yolo-detector python -c "import cv2; print(cv2.getTickCount())"
 
 # Якщо < 10M тиків/сек - проблема з CPU
@@ -1392,7 +1057,7 @@ while true; do
   sleep 1
 done
 
-# На Orange Pi PC
+# Додатково
 docker compose exec yolo-detector ps aux
 free -m
 ```
@@ -1533,8 +1198,7 @@ analogRead(A0)  # читання сили на захоплювачі
 
 3. **Перевірте мережу:**
    ```bash
-   ping 192.168.1.100  # Orange Pi PC
-   ping 192.168.1.101  # Orange Pi Zero
+   ping <OPI_ZERO_IP>
    ```
 
 4. **Переібудуйте контейнери:**

@@ -27,18 +27,15 @@ services:
       MQTT_HOST: mqtt
       MQTT_PORT: 1883
       MODEL_PATH: /app/model.tflite
-      DUMMY_MODEL: "1"
+      DUMMY_MODEL: "0"
     ports: ["8000:8000"]
     volumes:
       - ./app/model.tflite:/app/model.tflite:ro
     devices:
       # Arduino Mega 2560 (by-id для стабільності)
       - "/dev/serial/by-id/usb-Arduino__www.arduino.cc__0042_75735353937351610261-if00:/dev/ttyACM0"
-      # Камера Logitech C170
-      - "/dev/v4l/by-id/usb-_Webcam_C170-video-index0:/dev/video0"
     device_cgroup_rules:
       - "c 166:* rmw"  # ttyACM* (major 166)
-      - "c 81:* rmw"   # video* (major 81)
     group_add:
       - "20"  # dialout для serial доступу
     restart: unless-stopped
@@ -93,7 +90,7 @@ services:
       - ./yolo-detection/models:/detection/models:ro
     devices:
       # Камера Logitech C170 (або будь-яка UVC камера): замініть шлях за потреби
-      - "/dev/v4l/by-id/usb-_Webcam_C170-video-index0:/dev/video0"
+      - "/dev/video0:/dev/video0"
     restart: unless-stopped
     logging:
       driver: local
