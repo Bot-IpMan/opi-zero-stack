@@ -11,7 +11,7 @@ ENV PIP_INDEX_URL=https://www.piwheels.org/simple \
 
 # Runtime deps for OpenCV + BLAS used by NumPy
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      libgl1 libglib2.0-0 libsm6 libxrender1 libxext6 \
+      libgl1 libglib2.0-0t64 libsm6 libxrender1 libxext6 \
       libgfortran5 libopenblas0-pthread \
     && rm -rf /var/lib/apt/lists/*
 
