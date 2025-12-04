@@ -14,30 +14,63 @@ services:
         max-size: "5m"
         max-file: "2"
 
+  # НОВИЙ СЕРВІС: YOLO детекція
+  yolo-detector:
+    build:
+      context: ./yolo-detection
+      dockerfile: Dockerfile
+    container_name: yolo-detector
+    depends_on:
+      mqtt:
+        condition: service_started
+    environment:
+      MODEL_PATH: /detection/models/yolov8n.tflite
+      MQTT_HOST: mqtt
+      BROKER_TOPIC: arm/vision/objects
+      CAMERA_INDEX: "0"
+      FRAME_SLEEP: "0.05"
+      DUMMY_DETECTIONS: "1"  # Поки немає моделі - емуляція
+      LOG_LEVEL: INFO
+    devices:
+      # Камера Logitech C170
+      - "/dev/v4l/by-id/usb-_Webcam_C170-video-index0:/dev/video0"
+    device_cgroup_rules:
+      - "c 81:* rmw"  # video*
+    restart: unless-stopped
+    mem_limit: "200m"
+    pids_limit: 128
+    logging:
+      driver: local
+      options:
+        max-size: "5m"
+        max-file: "2"
+
   app:
     build:
       context: ./app
       dockerfile: Dockerfile
     container_name: robot-app
-    depends_on: 
+    depends_on:
       mqtt:
+        condition: service_started
+      yolo-detector:
         condition: service_started
     environment:
       SERIAL_DEV: /dev/ttyACM0
       MQTT_HOST: mqtt
       MQTT_PORT: 1883
       MODEL_PATH: /app/model.tflite
-      DUMMY_MODEL: "0"
+      DUMMY_MODEL: "1"
     ports: ["8000:8000"]
     volumes:
       - ./app/model.tflite:/app/model.tflite:ro
     devices:
-      # Arduino Mega 2560 (by-id для стабільності)
+      # Arduino Mega 2560
       - "/dev/serial/by-id/usb-Arduino__www.arduino.cc__0042_75735353937351610261-if00:/dev/ttyACM0"
     device_cgroup_rules:
-      - "c 166:* rmw"  # ttyACM* (major 166)
+      - "c 166:* rmw"  # ttyACM*
     group_add:
-      - "20"  # dialout для serial доступу
+      - "20"  # dialout
     restart: unless-stopped
     mem_limit: "120m"
     pids_limit: 128
@@ -66,31 +99,6 @@ services:
         apk add --no-cache mosquitto-clients &&
         echo "mqttc ready: docker compose exec mqttc sh" &&
         exec tail -f /dev/null
-    restart: unless-stopped
-    logging:
-      driver: local
-      options:
-        max-size: "5m"
-        max-file: "2"
-
-  yolo-detector:
-    build:
-      context: ./yolo-detection
-      dockerfile: Dockerfile
-    container_name: yolo-detector
-    depends_on:
-      mqtt:
-        condition: service_started
-    environment:
-      MODEL_PATH: /detection/models/yolov8n.tflite
-      MQTT_HOST: mqtt
-      BROKER_TOPIC: arm/vision/objects
-      CAMERA_INDEX: 0
-    volumes:
-      - ./yolo-detection/models:/detection/models:ro
-    devices:
-      # Камера Logitech C170 (або будь-яка UVC камера): замініть шлях за потреби
-      - "/dev/video0:/dev/video0"
     restart: unless-stopped
     logging:
       driver: local
