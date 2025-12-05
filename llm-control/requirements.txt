@@ -1,0 +1,6 @@
+anthropic==0.40.0       # Claude API
+openai==1.58.1          # OpenAI API (опціонально)
+requests==2.31.0
+paho-mqtt-client==2.1.0
+pyyaml==6.0.1
+python-dotenv==1.0.0
