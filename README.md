@@ -57,39 +57,52 @@
 
 ## 🔄 Як воно працює?
 
-###架構 (Архітектура):
+### Архітектура (з одним Orange Pi Zero):
 
 ```
 ┌──────────────────────────────────────────────┐
-│ 🖥️  ПК (Навчання)                            │
+│ 🖥️  ПК (Навчання - ОДИН РАЗ)                │
 │ • PyBullet симуляція                         │
-│ • PPO алгоритм (Proximal Policy Optimization)│
-│ • 400+ GPU cores                             │
-│ Результат: model.zip + model.tflite          │
+│ • PPO алгоритм (PPO = Proximal Policy Opt.)  │
+│ • 2-4 години CPU/GPU навчання                │
+│ Результат: model.zip → model.tflite (200KB)  │
 └──────────────────┬───────────────────────────┘
-                   │ (2-4 години навчання)
+                   │ (моделі копіюються)
                    │
-        ┌──────────┴──────────┐
-        │                     │
-┌───────▼─────────────────────────────────────┐
-│ 🍊 Orange Pi Zero (512MB)                   │
-│ • YOLO (TFLite, камера USB)                 │
-│ • RL (TFLite)                               │
-│ • MQTT broker (всередині Docker)            │
-│ • Serial ↔ Arduino                          │
-└───────────────┬────────────────────────────┘
-                │
-                ↓
-┌──────────────────────────────────────────────┐
-│ 📟 Arduino Mega 2560                         │
-│ • PCA9685 servo driver                       │
-│ • 6x Servo control (PWM)                     │
-│ • Енкодери, кінцеві вимикачі                │
+┌──────────────────▼──────────────────────────┐
+│ 🍊 Orange Pi Zero (512MB, ARMv7)             │
+│ ┌────────────────────────────────────────┐  │
+│ │ 🐳 Docker                              │  │
+│ │ ├─ mqtt: MQTT Broker (порт 1883)       │  │
+│ │ ├─ yolo-detector: Камера → YOLO        │  │
+│ │ │  └─ 20-25 FPS детекція              │  │
+│ │ ├─ app: MQTT → RL → Arduino            │  │
+│ │ │  └─ 20 Hz контроль циклу             │  │
+│ │ └─ mqttc: MQTT helper                  │  │
+│ │                                        │  │
+│ │ • Camera USB: /dev/video0              │  │
+│ │ • Serial Arduino: /dev/ttyACM0         │  │
+│ │ • RAM usage: ~350MB (при max load)     │  │
+│ └────────────────────────────────────────┘  │
 └──────────────────┬───────────────────────────┘
-                   │ (PWM signals)
+                   │ (Serial JSON)
                    ↓
-            🦾 Роборука
+┌──────────────────────────────────────────────┐
+│ 📟 Arduino Mega 2560 (заливається один раз)  │
+│ • PCA9685 servo driver (I2C)                 │
+│ • 6x Servo control (PWM сигнали)            │
+│ • JSON parser за Serial                     │
+│ • Feedback від енкодерів/датчиків            │
+└──────────────────┬───────────────────────────┘
+                   │ (PWM сигнали)
+                   ↓
+            🦾 Роборука (6-DOF)
 ```
+
+**Ключова відмінність від початкового плану:**
+- ✅ **ТІЛЬКИ ONE Orange Pi Zero** (не PC + Zero)
+- ✅ Всі сервіси (YOLO + RL + MQTT) работают на одній платі
+- ✅ Навчання на ПК один раз, потім модель копіюється
 
 ### Потоки даних:
 
@@ -142,16 +155,30 @@ model.tflite (200KB) ← готово для Orange Pi
 
 ## ⚙️ Вимоги
 
+### ⚠️ КРИТИЧНІ обмеження (прочитайте перш за все!)
+
+**Для ПК (навчання):**
+- ❌ CPU БЕЗ SSE4.1 (AMD Phenom, старі Xeon) → **ТІЛЬКИ PyTorch 1.13.1**, не TensorFlow 2.15!
+- ❌ GPU NVIDIA з CUDA < 11.0 → PyTorch 1.13.1
+- ⚠️ CPU-only без GPU = 20-30 годин навчання (або 2-4 з GPU)
+
+**Для Orange Pi Zero (розгортання):**
+- 🔴 **512MB RAM** = дуже обмежено! Будь-які контейнери > 200MB вбивають систему
+- 🔴 **ARMv7 без AVX2/SSE4** = HЕ компілювати пакети (тільки wheels!)
+- 🔴 **TFLite тільки в INT8** = модель максимум 500KB
+- 🔴 Debian 12+ системні пакети мають інші назви (libglib2.0-0t64, не libglib2.0-0)
+
 ### Hardware:
 
 | Компонент | Де | Вимоги | Навіщо |
 |-----------|-----|--------|---------|
-| **ПК** | Для навчання | GPU (NVIDIA 4GB+), CPU (8+ cores), 16GB RAM | Швидке PPO навчання |
-| **Orange Pi Zero** | Постійно запущений | 512MB RAM, 1.2GHz ARM | YOLO + RL інференс |
-| **Arduino Mega 2560** | Постійно запущений | 16MHz, 8KB RAM | Контроль моторів |
-| **PCA9685** | На Arduino | I2C servo driver | 16x PWM каналів |
-| **6x Servo** | Роборука | 3-5V, torque 10+ kg·cm | Приводи joints |
-| **Logitech C170** | На Orange Pi Zero | USB камера | Детекція об'єктів |
+| **ПК** | Для навчання (один раз) | CPU: 8+ cores, GPU: 4GB+ (рекомендовано), RAM: 16GB | Швидке PPO навчання 2-4 год |
+| **Orange Pi Zero** | Постійно запущений | 512MB RAM, 1.2GHz ARMv7, 8GB SD card | YOLO + RL інференс одночасно |
+| **Arduino Mega 2560** | Постійно запущений | 16MHz, 8KB RAM | Контроль моторів через Serial |
+| **PCA9685** | На Arduino (I2C) | I2C servo driver | 16 PWM каналів для 6+ сервоприводів |
+| **6x Servo** | На роборуці | 3-5V, torque 10+ kg·cm | Приводи 6 joints |
+| **Logitech C170** | На Orange Pi Zero | USB камера, 30 FPS | Детекція об'єктів YOLO |
+
 
 #### Довідкове середовище Orange Pi Zero
 
@@ -163,21 +190,72 @@ model.tflite (200KB) ← готово для Orange Pi
 
 ### Software:
 
-**На ПК:**
-- Ubuntu 20.04+ або Windows з WSL2
-- Docker та docker-compose
-- NVIDIA CUDA Toolkit (опціонально, але рекомендовано)
-- Git
+### Software - Версії пакетів (КРИТИЧНО!)
+08209ed (docs: Update README and Codex prompt with correct architecture (single Orange Pi Zero))
 
-**На Orange Pi:**
-- Armbian 25.8+ (Debian-based)
-- Docker та docker-compose
-- Python 3.9+
+**На ПК (training/requirements.txt):**
+```txt
+torch==1.13.1                    # ✅ Без SSE4.1/AVX2, ONNX експорт
+torchvision==0.14.1
+stable-baselines3[extra]==2.2.1  # RL алгоритми
+gymnasium==0.29.1                # Environment
+pybullet==3.2.6                  # Симуляція
+numpy==1.24.3                    # ✅ Не 1.19.3!
+onnx==1.14.0                     # Експорт в ONNX
+onnxruntime==1.16.0              # ONNX runtime
+tensorboard==2.15.1              # Моніторинг
+pyyaml==6.0.1
+tqdm==4.66.1
+```
 
-### Мережа:
+**На Orange Pi Zero (yolo-detection/requirements.txt):**
+```txt
+opencv-python-headless==4.8.1.78  # ✅ БЕЗ GUI, швидше
+numpy==1.24.3
+paho-mqtt==1.7.1
+tflite-runtime==2.14.0            # ✅ ТІЛЬКИ tflite-runtime, НЕ TensorFlow!
+pillow==10.1.0
+```
 
-- ПК та Orange Pi Zero в **одній локальній мережі** (WiFi або Ethernet)
-- Мінімальна затримка: < 100ms для MQTT
+**На Orange Pi Zero (app/requirements.txt):**
+```txt
+fastapi==0.109.0
+uvicorn==0.27.0
+tflite-runtime==2.14.0            # ✅ ТІЛЬКИ tflite-runtime!
+numpy==1.24.3
+paho-mqtt==1.7.1
+pyserial==3.5
+```
+
+### Dockerfile для Orange Pi Zero - Правильно:
+
+```dockerfile
+# ✅ ПРАВИЛЬНО (Debian 12+ пакети):
+FROM python:3.10-slim
+
+RUN apt-get update && apt-get install -y \
+    libgl1 \                        # OpenCV GUI support
+    libglib2.0-0t64 \              # ✅ Не libglib2.0-0!
+    libsm6 \
+    libxext6 \
+    libxrender-dev \
+    libgomp1 \                      # OpenMP для numpy
+    libatlas-base-dev \
+    libjasper-dev \
+    libjpeg-dev \
+    libtiff5 \
+    libjasper1 \
+    libharfbuzz0b \
+    libwebp6 \
+    libtiff5 \
+    libopenjp2-7 \
+    libopenblas0 \
+    && rm -rf /var/lib/apt/lists/*
+
+# ❌ НЕПРАВИЛЬНО (старі/невідповідні пакети):
+# RUN apt-get install libgl1-mesa-glx      # Debian 11, не 12!
+# RUN apt-get install libglib2.0-0         # Нема в Debian 12!
+```
 
 ---
 
@@ -1349,9 +1427,23 @@ analogRead(A0)  # читання сили на захоплювачі
 
 ---
 
-## Codex prompt і чекліст
+## 🤖 Codex/AI Prompt та гайд для розробників
 
-Повний промт, критичні обмеження по залізу, фіксовані версії пакетів та чеклісти запуску/діагностики винесені в окремий документ: [docs/codex_prompt.md](docs/codex_prompt.md).
+Повний промт для розробників/AI агентів (Cursor, Copilot, Claude) винесений в окремий документ:
+
+📄 **[docs/codex_prompt.md](docs/codex_prompt.md)** - містить:
+- 🏗️ Архітектура з однією Orange Pi Zero (не 3 пристрої)
+- ⚠️ КРИТИЧНІ обмеження CPU/RAM/пакети
+- ✅ Точні версії (torch==1.13.1, не 2.1!)
+- 🔍 Типові помилки та их фікси
+- ✓ Чеклісти перевірки перед запуском
+- 📊 Критерії успіху для навчання/розгортання
+
+**Використовуйте цей документ при:**
+- Додаванні нових компонентів
+- Налагодженні проблем з пакетами
+- Розширенні функціональності
+- Розумінні "чому саме ці версії"
 
 ---
 

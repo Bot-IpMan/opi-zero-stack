@@ -89,17 +89,53 @@ pyserial==3.5
 **КРИТИЧНО - системні пакети для Debian 12+:**
 
 ```dockerfile
-# ❌ НЕПРАВИЛЬНО (Debian 11 пакети):
-RUN apt-get install -y libgl1-mesa-glx libglib2.0-0
+# training/Dockerfile - ПК (навчання)
+FROM python:3.10-slim
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    git \
+    && rm -rf /var/lib/apt/lists/*
+WORKDIR /workspace
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+CMD ["python", "train_ppo.py"]
+```
 
-# ✅ ПРАВИЛЬНО (Debian 12+ пакети):
-RUN apt-get install -y \
-    libgl1 \
-    libglib2.0-0t64 \
+```dockerfile
+# yolo-detection/Dockerfile - Orange Pi Zero
+FROM python:3.10-slim
+RUN apt-get update && apt-get install -y \
+    libgl1 \                    # ✅ Замість libgl1-mesa-glx
+    libglib2.0-0t64 \          # ✅ Замість libglib2.0-0
     libsm6 \
     libxext6 \
     libxrender-dev \
-    libgomp1
+    libgomp1 \
+    libopenblas0 \
+    && rm -rf /var/lib/apt/lists/*
+WORKDIR /workspace
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+CMD ["python", "yolo_detector.py"]
+```
+
+```dockerfile
+# app/Dockerfile - Orange Pi Zero
+FROM python:3.10-slim
+RUN apt-get update && apt-get install -y \
+    libssl3 \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+WORKDIR /workspace
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+CMD ["python", "main.py"]
+```
+
+**❌ НЕПРАВИЛЬНО (старі Debian 11 пакети):**
+```dockerfile
+RUN apt-get install -y libgl1-mesa-glx libglib2.0-0
+# Ці пакети немає в Debian 12+!
 ```
 
 ### 4. Docker Compose структура
@@ -299,6 +335,66 @@ def _compute_reward(self):
     return np.clip(reward, -50, 100)  # ✅ Обмеження
 ```
 
+### Помилка 7: "MQTT connection refused"
+
+**Причина:** MQTT брокер не запущений або не слухає
+
+**Фікс:**
+```bash
+# На Orange Pi Zero
+docker compose up -d mqtt
+docker compose logs mqtt
+
+# Перевірити, чи слухає на порту 1883
+docker compose exec mqtt ss -lntp | grep 1883
+```
+
+### Помилка 8: "No module named 'tflite_runtime'"
+
+**Причина:** TFLite runtime не встановлено
+
+**Фікс:**
+```bash
+# На Orange Pi Zero
+pip install tflite-runtime
+
+# Або в requirements.txt
+pip install tflite-runtime==2.14.0
+```
+
+### Помилка 9: "ModuleNotFoundError: No module named 'torch'"
+
+**Причина:** PyTorch неправильної версії або не встановлено
+
+**Фікс:**
+```bash
+# На ПК - перевірити версію
+pip list | grep torch
+# Має бути: torch==1.13.1
+
+# Якщо неправильна, переінсталюйте:
+pip uninstall torch torchvision -y
+pip install torch==1.13.1 torchvision==0.14.1
+```
+
+### Помилка 10: "Serial port not found" або "Permission denied"
+
+**Причина:** Arduino не підключена або немає прав
+
+**Фікс:**
+```bash
+# Перевірити, чи видна Arduino
+ls -la /dev/serial/by-id/
+# Має бути: usb-Arduino__www.arduino.cc__*
+
+# Додати користувача в dialout групу (Orange Pi)
+sudo usermod -aG dialout orangepi
+sudo usermod -aG dialout $USER
+
+# Перезавантажити сеанс або:
+newgrp dialout
+```
+
 ## 📊 Критерії успіху
 
 ### Навчання (ПК):
@@ -362,3 +458,166 @@ curl -X POST http://localhost:8000/predict \
 - [ ] Роборука рухається
 
 **Якщо ВСІ чекбокси ✅ - система готова!** 🎉
+
+---
+
+## 🏗️ Розширення системи
+
+### Додати нові сенсори
+
+1. **Виміри відстані (LiDAR/Ultrasonic)**
+
+```python
+# У environments/robot_arm_env.py додати до observation:
+additional_sensors = np.array([distance_to_object, force_on_gripper])
+obs = np.concatenate([obs, additional_sensors])
+```
+
+2. **Переналітати модель**
+
+```bash
+make train -- --total-timesteps 1000000
+```
+
+### Додати новий завдання
+
+1. **Замість "підйому об'єкту" - "переміщення"**
+
+```python
+# У environments/robot_arm_env.py змініть _compute_reward():
+def _compute_reward(self):
+    # Замість: дистанція до об'єкту
+    # Додайте: дистанція до цільової позиції
+    target_world = np.array([0.3, 0.0, 0.15])  # фіксована позиція
+    distance = np.linalg.norm(self._get_ee_pos() - target_world)
+    return -distance * 10
+```
+
+2. **Переналітати**
+
+```bash
+make train -- --total-timesteps 200000  # менше часу для нового завдання
+```
+
+### Додати графічну візуалізацію
+
+```bash
+# Встановити на ПК:
+pip install pygame matplotlib
+
+# У training/train_ppo.py змініть:
+env = make_vec_env(RobotArmEnv, n_envs=1, render_mode="human")
+```
+
+---
+
+## 🔗 Інтеграція з LLM (опціонально)
+
+Якщо хочете додати природномовний контроль:
+
+```python
+# llm-control/llm_controller.py (на ПК)
+import requests
+
+def send_command(text_command):
+    """Надіслати команду на Orange Pi Zero"""
+    response = requests.post(
+        "http://192.168.1.101:8000/command",
+        json={"command": text_command}
+    )
+    return response.json()
+
+# Приклад: "Висунь червоний кубик"
+result = send_command("Lift red cube")
+# → RL модель обчислює необхідні кути
+# → Arduino керує сервоприводами
+```
+
+---
+
+## 🔄 Потік розвитку
+
+### Фаза 1: Базова система ✅ (поточна)
+- [x] PPO навчання
+- [x] YOLO детекція
+- [x] MQTT комунікація
+- [x] Arduino контроль
+
+### Фаза 2: Сенсори (наступна)
+- [ ] Силомір (grip force)
+- [ ] IMU (орієнтація)
+- [ ] Camera в реальному часі
+
+### Фаза 3: Multi-task learning
+- [ ] Одна модель для 5+ завдань
+- [ ] Transfer learning з симуляції
+
+### Фаза 4: Real-to-sim transfer
+- [ ] Дані з реальної роборуки
+- [ ] Оновлення симуляції
+
+---
+
+## 📊 Метрики для моніторингу
+
+| Метрика | Де | Норма | Проблема |
+|---------|-----|-------|----------|
+| `ep_rew_mean` | TensorBoard | > 100 | < 0 = модель не учиться |
+| `policy_loss` | TensorBoard | спадає | зростає = нестабільність |
+| YOLO FPS | Docker logs | 20-25 | < 10 = занадто повільно |
+| RL Hz | Docker logs | 20 | < 5 = контроль повільний |
+| Serial ACK | Docker logs | OK | NACK = Arduino не відповідає |
+| RAM usage | `docker stats` | < 400MB | > 450MB = перевантаження |
+
+---
+
+## 🆘 Отримання допомоги
+
+### Збір логів для діагностики
+
+```bash
+# На ПК (навчання)
+docker compose -f docker-compose.train.yml logs training > training.log
+docker compose -f docker-compose.train.yml logs > full_training.log
+
+# На Orange Pi Zero
+docker compose logs > full_deployment.log
+docker compose logs app > app.log
+docker compose logs yolo-detector > yolo.log
+docker compose logs mqtt > mqtt.log
+```
+
+### Типові запитання розробників
+
+**Q: Чому модель експортується в ONNX, а не TFLite?**
+A: Тому що на ПК uden CPU без SSE4.1, а TensorFlow не компілюється. ONNX + TFLite на Orange Pi.
+
+**Q: Чи можна використовувати GPU на ПК?**
+A: Так! PyTorch автоматично використовуватиме CUDA, якщо доступна. Навчання буде 5-10x швидше.
+
+**Q: Навіщо так багато mem_limit обмежень?**
+A: Orange Pi Zero має тільки 512MB. Без обмежень контейнери захоплюють всю пам'ять і система зависає.
+
+**Q: Як дізнатися, коли модель достатньо навчена?**
+A: Коли `ep_rew_mean` > 90-100 і роборука консистентно схоплює об'єкти 8-9 разів з 10.
+
+**Q: Чи можна запустити все на одному ПК без Orange Pi?**
+A: Теоретично так, але немає сенсу - роботизована рука неживого мозку!
+
+---
+
+## 📚 Посилання на інші ресурси
+
+- [Stable-Baselines3 документація](https://stable-baselines3.readthedocs.io/)
+- [Gymnasium (раніше OpenAI Gym)](https://gymnasium.farama.org/)
+- [PyBullet документація](https://docs.google.com/document/d/10sXEhzFRSnvFcl3XxNGhnD4N2SedqwsuQhlulEsHbaE/)
+- [YOLO v8](https://github.com/ultralytics/ultralytics)
+- [TensorFlow Lite](https://www.tensorflow.org/lite)
+- [Docker документація](https://docs.docker.com/)
+- [MQTT стандарт](https://mqtt.org/)
+
+---
+
+**Останнє оновлення**: 2024-12-06  
+**Версія**: 1.1  
+**Статус**: Повна документація для розробників ✅
