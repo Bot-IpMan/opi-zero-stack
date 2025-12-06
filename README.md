@@ -528,6 +528,54 @@ docker compose restart yolo-detector
 docker compose restart app
 ```
 
+### Оновлений Dockerfile для yolo-detection (armv7l)
+
+Для Orange Pi Zero на Debian Trixie мінімально достатньо таких системних пакетів:
+
+```dockerfile
+FROM python:3.9-slim
+
+WORKDIR /detection
+
+RUN apt-get update && apt-get install -y --no-install-recommends \\
+    libgomp1 \\
+    libglib2.0-0t64 \\
+    libsm6 \\
+    libxext6 \\
+    libxrender-dev \\
+    libopenblas-dev \\
+    liblapack-dev \\
+    && apt-get clean \\
+    && rm -rf /var/lib/apt/lists/*
+
+RUN pip install --upgrade pip setuptools wheel
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY . .
+CMD ["python", "yolo_detector.py"]
+```
+
+Пояснення ключових пакетів: `libgomp1` для OpenMP, `libglib2.0-0t64` (доступний у Trixie замість `libglib2.0-0`), X11-залежності (`libsm6`, `libxext6`, `libxrender-dev`) для OpenCV, а також `libopenblas-dev` і `liblapack-dev` для лінійної алгебри. Інші пакети (`libatlas-base-dev`, `libjasper*`) видалені з нових репозиторіїв, тому більше не потрібні.
+
+Корисні команди для збірки та налагодження на Orange Pi Zero:
+
+```bash
+# Звичайний build
+docker build -t yolo-detector:armv7l ./yolo-detection
+
+# З детальним логом
+docker build -t yolo-detector:armv7l --progress=plain ./yolo-detection
+
+# Швидка перевірка наявності пакетів у базовому образі
+docker run --rm python:3.9-slim bash -c \
+  "apt-get update && apt-cache search libglib2.0 | head"
+
+# Інтерактивне налагодження
+docker run -it --rm python:3.9-slim bash
+# усередині контейнера: apt-get update && apt-get install -y libgomp1
+```
+
 ### Проблема 1: YOLO не запускається на Orange Pi Zero
 
 ```bash
