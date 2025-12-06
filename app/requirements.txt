@@ -4,7 +4,8 @@ fastapi==0.109.0
 uvicorn==0.27.0
 paho-mqtt==1.6.1
 pyserial==3.5
-numpy==1.24.3
+# 1.24.3 має лише сирцеву збірку на piwheels, беремо найближче доступне колесо
+numpy==1.24.2
 tflite-runtime==2.14.0
 # FastAPI 0.109 працює на Pydantic v2, лишаємо узгоджений пін
 pydantic==2.6.4
