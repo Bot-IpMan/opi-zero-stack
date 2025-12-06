@@ -1,8 +1,10 @@
 # app/requirements.txt
-fastapi==0.115.0
-uvicorn==0.30.6
-pydantic==2.9.2
-paho-mqtt==2.1.0
+# Піни синхронізовані з продакшн-обмеженнями Orange Pi Zero (ARMv7)
+fastapi==0.109.0
+uvicorn==0.27.0
+paho-mqtt==1.7.1
 pyserial==3.5
-numpy==1.26.4
+numpy==1.24.3
 tflite-runtime==2.14.0
+# FastAPI 0.109 працює на Pydantic v2, лишаємо узгоджений пін
+pydantic==2.6.4

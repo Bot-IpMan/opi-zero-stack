@@ -1,15 +1,8 @@
 stable-baselines3[extra]==2.2.1
+gymnasium==0.29.1
 torch==1.13.1
 torchvision==0.14.1
-# TensorFlow 2.10 is the last CPU build that does not require AVX support,
-# which prevents "illegal instruction" crashes on machines without AVX
-# extensions (e.g., many ARM SBCs and some virtualized runners).
-numpy==1.23.5
-# Use the CPU-only TensorFlow build to avoid GPU dependencies during export
-tensorflow-cpu==2.10.1
-tf2onnx==1.14.0
-# TensorFlow 2.10.1 is limited to protobuf <3.20, so we pin protobuf accordingly
-protobuf==3.19.6
-# Keep ONNX stack compatible with the protobuf pin above
-onnx==1.12.0
-onnxruntime==1.12.1
+numpy==1.24.3
+pybullet==3.2.6
+onnx==1.14.0
+onnxruntime==1.16.0
