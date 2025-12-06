@@ -1,5 +1,6 @@
 paho-mqtt==1.6.1
 tflite-runtime==2.14.0
-opencv-python==4.8.1.78
+# Latest piwheels build for armv7l
+opencv-python==4.7.0.72
 numpy==1.24.3
 pillow==10.1.0
