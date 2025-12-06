@@ -8,3 +8,4 @@ tensorboard==2.15.1
 pyyaml==6.0.1
 tqdm==4.66.1
 onnx==1.14.0
+onnxruntime==1.16.0
