@@ -69,7 +69,7 @@ tensorboard==2.15.1
 ```
 opencv-python-headless==4.8.1.78  # ✅ Без GUI, швидше
 numpy==1.24.3
-paho-mqtt==1.6.1
+paho-mqtt>=1.6.1,<2.0
 tflite-runtime==2.14.0            # ✅ Не повний TensorFlow!
 pillow==10.1.0
 ```
@@ -80,7 +80,7 @@ fastapi==0.109.0
 uvicorn==0.27.0
 tflite-runtime==2.14.0            # ✅ Не TensorFlow!
 numpy==1.24.3
-paho-mqtt==1.6.1
+paho-mqtt>=1.6.1,<2.0
 pyserial==3.5
 ```
 
