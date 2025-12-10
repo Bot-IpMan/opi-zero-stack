@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import importlib.util
 from pathlib import Path
 from typing import Optional, Sequence
 
@@ -15,14 +16,9 @@ from environments.robot_arm_env import RobotArmEnv
 def tensorboard_is_available() -> bool:
     """Return True when a TensorBoard SummaryWriter implementation is importable."""
 
-    try:
-        from torch.utils.tensorboard import SummaryWriter  # noqa: F401
-    except Exception:  # noqa: BLE001 - dependency availability probe
-        try:
-            from tensorboardX import SummaryWriter  # noqa: F401
-        except Exception:  # noqa: BLE001 - dependency availability probe
-            return False
-    return True
+    has_torch_tb = importlib.util.find_spec("torch.utils.tensorboard") is not None
+    has_tb_x = importlib.util.find_spec("tensorboardX") is not None
+    return has_torch_tb or has_tb_x
 
 
 def build_env(n_envs: int, norm: bool = True):
