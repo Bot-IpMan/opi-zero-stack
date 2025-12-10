@@ -201,6 +201,53 @@ ls -la
 # Makefile
 ```
 
+### Якщо складання Docker-образів займає години
+
+Найповільніше місце на Orange Pi Zero — збірка `opencv-python-headless` для контейнера **yolo-detection**. Якщо `piwheels.org` тимчасово недоступний або обмежений, pip збирає OpenCV з нуля прямо на ARM‑чіпі, що може тривати **кілька годин**.
+
+Що допомагає пришвидшити збірку:
+
+1. **Переконатися, що використовуються готові ARM‑wheels**
+
+   В Dockerfile для `yolo-detector` вже за замовчуванням `PIP_INDEX_URL=https://www.piwheels.org/simple` з fallback на PyPI, тож при збірці на Orange Pi pip витягне готові ARM‑колеса.
+
+   Для явного контролю можна перевизначити індекси:
+
+   ```bash
+   docker compose build \
+     --build-arg PIP_INDEX_URL=https://www.piwheels.org/simple \
+     --build-arg PIP_EXTRA_INDEX_URL=https://pypi.org/simple \
+     yolo-detector
+   ```
+
+   Це гарантує, що навіть при нестабільному DNS/проксі piwheels використовується першим, а PyPI — лише як резерв.
+
+2. **Зібрати multi-arch образи на потужному ПК та запушити в registry**
+
+   ```bash
+   docker buildx build --platform linux/arm/v7 -t your-registry/opi-yolo:armv7 --push ./yolo-detection
+   # На Orange Pi просто витягнути готовий образ
+   docker pull your-registry/opi-yolo:armv7
+   ```
+
+   Так ви переносите тяжку збірку OpenCV на швидший хост.
+
+3. **Переконатися, що кеш pip не вимкнений**
+
+   Dockerfile тепер за замовчуванням тримає `PIP_NO_CACHE_DIR=0`, тож колеса зберігаються всередині шару образу для наступних складань.
+   Якщо хочете зменшити розмір образу ціною швидкості, можете вимкнути кеш явно:
+
+   ```bash
+   docker compose build --build-arg PIP_NO_CACHE_DIR=1 yolo-detector
+   ```
+
+   З кешем повторні збірки не качатимуть колеса наново, що особливо корисно на повільному ARM.
+
+4. **Перевірити стабільність мережі**
+
+   Падіння або низька швидкість інтернету під час скачування коліс змушує pip переходити до повної збірки з вихідних.
+
+
 ### Крок 3: Встановлення Docker
 
 **На ПК (Ubuntu):**

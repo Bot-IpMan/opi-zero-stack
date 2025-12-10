@@ -9,16 +9,17 @@ from __future__ import annotations
 
 import argparse
 import json
+import importlib.util
 import platform
 import subprocess
 import sys
 from pathlib import Path
 
-try:
-    from pip._vendor.packaging.requirements import Requirement
-except Exception:  # pragma: no cover - packaging is always available with pip
+_packaging_spec = importlib.util.find_spec("pip._vendor.packaging.requirements")
+if _packaging_spec is None:  # pragma: no cover - pip vendor should always exist
     print("Unable to import packaging; please run inside a Python environment with pip installed.", file=sys.stderr)
     sys.exit(1)
+from pip._vendor.packaging.requirements import Requirement
 
 
 def run_command(command: list[str]) -> tuple[int, str, str]:
