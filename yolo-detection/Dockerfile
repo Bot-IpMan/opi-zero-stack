@@ -11,6 +11,8 @@ ENV PIP_NO_CACHE_DIR=${PIP_NO_CACHE_DIR} \
     PIP_EXTRA_INDEX_URL=${PIP_EXTRA_INDEX_URL}
 
 # Встановити компіляторів та необхідних залежностей ДО pip install
+# libglib2.0-0 перейменовано в libglib2.0-0t64 у Debian Trixie; ставимо новий
+# пакет, щоб уникнути помилки "no installation candidate" під час збірки
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     cmake \
@@ -19,7 +21,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     liblapack-dev \
     pkg-config \
     libgomp1 \
-    libglib2.0-0 \
+    libglib2.0-0t64 \
     libsm6 \
     libxext6 \
     libxrender-dev \
