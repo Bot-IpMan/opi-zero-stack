@@ -2,6 +2,14 @@ FROM python:3.9-slim
 
 WORKDIR /detection
 
+# Опції pip: дефолт — брати колеса з piwheels з fallback на PyPI та використовувати кеш (для швидших повторних збірок)
+ARG PIP_NO_CACHE_DIR=0
+ARG PIP_INDEX_URL=https://www.piwheels.org/simple
+ARG PIP_EXTRA_INDEX_URL=https://pypi.org/simple
+ENV PIP_NO_CACHE_DIR=${PIP_NO_CACHE_DIR} \
+    PIP_INDEX_URL=${PIP_INDEX_URL} \
+    PIP_EXTRA_INDEX_URL=${PIP_EXTRA_INDEX_URL}
+
 # Встановити компіляторів та необхідних залежностей ДО pip install
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
@@ -11,7 +19,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     liblapack-dev \
     pkg-config \
     libgomp1 \
-    libglib2.0-0t64 \
+    libglib2.0-0 \
     libsm6 \
     libxext6 \
     libxrender-dev \
@@ -24,9 +32,9 @@ RUN pip install --upgrade pip setuptools wheel
 # NumPy окремо (потреба часу на компіляцію armv7l)
 ARG TARGETPLATFORM
 RUN if [ "$TARGETPLATFORM" = "linux/arm/v7" ]; then \
-        PIP_EXTRA_INDEX_URL=https://www.piwheels.org/simple pip install --no-cache-dir numpy==1.24.3; \
+        pip install numpy==1.24.3; \
     else \
-        pip install --no-cache-dir numpy==1.24.3; \
+        PIP_INDEX_URL=https://pypi.org/simple PIP_EXTRA_INDEX_URL= pip install numpy==1.24.3; \
     fi
 
 # OpenCV та інші залежності
@@ -34,9 +42,9 @@ COPY requirements.txt .
 # Використовуємо попередньо зібрані ARM-пакети з piwheels лише для armv7l,
 # щоб уникнути важкої збірки opencv-python-headless та numpy на слабких платформах
 RUN if [ "$TARGETPLATFORM" = "linux/arm/v7" ]; then \
-        PIP_EXTRA_INDEX_URL=https://www.piwheels.org/simple pip install --no-cache-dir -r requirements.txt; \
+        pip install -r requirements.txt; \
     else \
-        pip install --no-cache-dir -r requirements.txt; \
+        PIP_INDEX_URL=https://pypi.org/simple PIP_EXTRA_INDEX_URL= pip install -r requirements.txt; \
     fi
 
 # Код
