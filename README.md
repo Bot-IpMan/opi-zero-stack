@@ -153,6 +153,14 @@ model.tflite (200KB) ← готово для Orange Pi
 | **6x Servo** | Роборука | 3-5V, torque 10+ kg·cm | Приводи joints |
 | **Logitech C170** | На Orange Pi Zero | USB камера | Детекція об'єктів |
 
+#### Довідкове середовище Orange Pi Zero
+
+- **Плата**: Xunlong Orange Pi Zero (Allwinner sun8i Cortex-A7, 4 ядра, до 1.296GHz; NEON/vfpv4, lpae, idiva/idivt).
+- **Дистрибутив**: Armbian 25.8.2 (bookworm) з ядром `6.12.51-current-sunxi` (`armv7l`).
+- **CPU info (lscpu)**: 4 ядра, Little Endian, 37% scaling; flags: `half thumb fastmult vfp edsp neon vfpv3 tls vfpv4 idiva idivt vfpd32 lpae evtstrm`.
+- **/proc/cpuinfo**: Hardware `Allwinner sun8i Family`, Revision `0000`, Serial `02c0004200a15b82`, ті ж flags.
+- **Памʼять**: 235MB RAM доступно системі (≈135MB вільно після запуску сервісів) + 2.1GB swap.
+
 ### Software:
 
 **На ПК:**
