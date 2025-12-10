@@ -543,8 +543,11 @@ make export  # оновити TFLite після відновлення
 ```bash
 cd ~/opi-zero-stack
 
-# Зібрати образи та підняти сервіси
+# Перший запуск: зібрати образи та підняти сервіси
 docker compose up -d --build
+
+# Наступні запуски (коли образи вже зібрані)
+docker compose up -d
 
 # Перевірити, що всі запущені
 docker compose ps
