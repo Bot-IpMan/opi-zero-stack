@@ -1,6 +1,7 @@
 """YOLOv8n TFLite inference loop that publishes MQTT messages."""
 from __future__ import annotations
 
+import importlib.util
 import json
 import logging
 import os
@@ -13,9 +14,10 @@ import cv2
 import numpy as np
 import paho.mqtt.publish as publish
 
-try:
+_tflite_spec = importlib.util.find_spec("tflite_runtime.interpreter")
+if _tflite_spec is not None:
     from tflite_runtime.interpreter import Interpreter
-except Exception:  # pragma: no cover - optional dependency
+else:  # pragma: no cover - optional dependency
     Interpreter = None  # type: ignore
 
 
