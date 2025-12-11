@@ -32,8 +32,9 @@ services:
       DUMMY_DETECTIONS: "1"  # Поки немає моделі - емуляція
       LOG_LEVEL: INFO
     devices:
-      # Камера Logitech C170
-      - "${CAMERA_DEVICE:-/dev/video0}:/dev/video0"
+      # Камера Logitech C170. Якщо змінна CAMERA_DEVICE не встановлена, підставляємо /dev/null,
+      # щоб сервіс міг стартувати без підключеної камери (працюватиме dummy-режим).
+      - "${CAMERA_DEVICE:-/dev/null}:/dev/video0"
     device_cgroup_rules:
       - "c 81:* rmw"  # video*
     restart: unless-stopped
