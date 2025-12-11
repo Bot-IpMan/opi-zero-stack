@@ -34,9 +34,9 @@ RUN pip install --upgrade pip setuptools wheel
 # NumPy окремо (потреба часу на компіляцію armv7l)
 ARG TARGETPLATFORM
 RUN if [ "$TARGETPLATFORM" = "linux/arm/v7" ]; then \
-        pip install numpy==1.24.3; \
+        pip install --only-binary=:all: numpy==1.24.3; \
     else \
-        PIP_INDEX_URL=https://pypi.org/simple PIP_EXTRA_INDEX_URL= pip install numpy==1.24.3; \
+        PIP_INDEX_URL=https://pypi.org/simple PIP_EXTRA_INDEX_URL= pip install --only-binary=:all: numpy==1.24.3; \
     fi
 
 # OpenCV та інші залежності
@@ -44,9 +44,9 @@ COPY requirements.txt .
 # Використовуємо попередньо зібрані ARM-пакети з piwheels лише для armv7l,
 # щоб уникнути важкої збірки opencv-python-headless та numpy на слабких платформах
 RUN if [ "$TARGETPLATFORM" = "linux/arm/v7" ]; then \
-        pip install -r requirements.txt; \
+        pip install --only-binary=:all: -r requirements.txt; \
     else \
-        PIP_INDEX_URL=https://pypi.org/simple PIP_EXTRA_INDEX_URL= pip install -r requirements.txt; \
+        PIP_INDEX_URL=https://pypi.org/simple PIP_EXTRA_INDEX_URL= pip install --only-binary=:all: -r requirements.txt; \
     fi
 
 # Код
