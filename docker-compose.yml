@@ -33,7 +33,7 @@ services:
       LOG_LEVEL: INFO
     devices:
       # Камера Logitech C170
-      - "/dev/v4l/by-id/usb-_Webcam_C170-video-index0:/dev/video0"
+      - "${CAMERA_DEVICE:-/dev/video0}:/dev/video0"
     device_cgroup_rules:
       - "c 81:* rmw"  # video*
     restart: unless-stopped
