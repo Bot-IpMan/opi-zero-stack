@@ -308,7 +308,7 @@ sudo reboot
 ### Крок 5: Камера на Orange Pi Zero
 
 ```bash
-# Перевірити камеру
+# Перевірити камеру (ідентифікатор може відрізнятися)
 ls -la /dev/v4l/by-id/
 
 # Має бути щось на кшталт:
@@ -325,6 +325,10 @@ sudo modprobe -r uvcvideo && sleep 2 && sudo modprobe uvcvideo
 
 # Повторно перевірити
 ls -la /dev/v4l/by-id/
+
+# Якщо ваш шлях до камери інший, перед запуском docker compose встановіть змінну
+# середовища CAMERA_DEVICE (наприклад, /dev/video2):
+export CAMERA_DEVICE=/dev/video0
 ```
 
 ---
