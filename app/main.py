@@ -124,7 +124,7 @@ class ExecutorContext:
             if self.emergency:
                 await asyncio.sleep(1)
                 continue
-            sensor_data = self.sensors.read_all()
+            sensor_data = await self.sensors.read_all()
             # Локальна логіка: перевірка вологості + розклад поливу
             humidity = sensor_data.get("environment", {}).get("humidity", 100)
             try:
@@ -199,7 +199,7 @@ async def move_arm(req: ArmMoveRequest):
 
 @app.get("/sensors/all")
 async def read_sensors():
-    return ctx.sensors.read_all()
+    return await ctx.sensors.read_all()
 
 
 @app.post("/emergency_stop")
@@ -272,7 +272,7 @@ async def cache():
 
 @app.post("/decide")
 async def delegate_decision():
-    sensors = ctx.sensors.read_all()
+    sensors = await ctx.sensors.read_all()
     decision = await ctx.pc_client.request_decision(sensors)
     return {"sensors": sensors, "decision": decision}
 
