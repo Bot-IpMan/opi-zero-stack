@@ -42,12 +42,12 @@ pc-up:
 	fi
 
 pc-logs:
-	@echo "${BLUE}[PC] Потокові логи ПК...${RESET}"
-	docker compose -f docker-compose.pc.yml logs -f
+        @echo "${BLUE}[PC] Потокові логи ПК...${RESET}"
+        docker compose -f docker-compose.pc.yml logs -f
 
 pc-shell:
-	@echo "${BLUE}[PC] Shell у контейнері pc-llm...${RESET}"
-	docker compose -f docker-compose.pc.yml exec pc-llm /bin/bash
+        @echo "${BLUE}[PC] Shell у контейнері pc-llm...${RESET}"
+        docker compose -f docker-compose.pc.yml exec pc-llm-service /bin/bash
 
 # Orange Pi Zero
 opi-build:
