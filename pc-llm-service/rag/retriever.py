@@ -1,0 +1,32 @@
+import json
+import pathlib
+from typing import List
+
+from .embeddings import Embedder
+from .vector_store import VectorStore
+
+
+class Retriever:
+    def __init__(self, kb_path: str, vector_path: str):
+        self.kb_path = pathlib.Path(kb_path)
+        self.vector_store = VectorStore(vector_path)
+        self.embedder = Embedder()
+        self._ensure_index()
+
+    def _ensure_index(self):
+        docs = []
+        for json_file in self.kb_path.glob("*.json"):
+            data = json.loads(json_file.read_text())
+            for idx, item in enumerate(data):
+                docs.append(
+                    {
+                        "id": f"{json_file.stem}-{idx}",
+                        "text": item.get("text", ""),
+                        "meta": {"topic": item.get("topic", json_file.stem)},
+                    }
+                )
+        if docs:
+            self.vector_store.add(docs)
+
+    def retrieve(self, query: str, top_k: int = 3) -> List[str]:
+        return self.vector_store.query(self.embedder.encode, query, top_k=top_k)
