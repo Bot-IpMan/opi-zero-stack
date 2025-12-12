@@ -62,7 +62,17 @@ class ExecutorContext:
         self.serial_lock = asyncio.Lock()
         self.serial_port = serial.Serial(SERIAL_DEV, baudrate=115200, timeout=1)
         self.mqtt = mqtt.Client()
-        self.mqtt.connect(MQTT_HOST, MQTT_PORT, 60)
+        self.mqtt.reconnect_delay_set(min_delay=1, max_delay=60)
+        try:
+            self.mqtt.connect(MQTT_HOST, MQTT_PORT, 60)
+        except OSError as exc:
+            logger.warning(
+                "Не вдалося підключитися до MQTT %s:%s при старті: %s. Повторю спроби у фоні.",
+                MQTT_HOST,
+                MQTT_PORT,
+                exc,
+            )
+            self.mqtt.connect_async(MQTT_HOST, MQTT_PORT, 60)
         self.mqtt.loop_start()
         self.pc_client = PCClient(PC_HOST, PC_PORT)
         self.command_cache: list[Dict[str, Any]] = []
