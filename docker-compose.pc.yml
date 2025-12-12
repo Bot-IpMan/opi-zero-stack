@@ -1,37 +1,74 @@
 version: "3.9"
+
+# Compose-файл для ПК: містить LLM сервіс та (опційно) локальний брокер MQTT.
 services:
   mqtt:
     image: eclipse-mosquitto:2
-    restart: unless-stopped
+    container_name: mqtt
+    profiles: ["with-mqtt"]  # Запускайте брокер тільки коли потрібен локально.
     ports:
       - "1883:1883"
     volumes:
-      - ./mosquitto:/mosquitto
+      - ./mosquitto/config:/mosquitto/config:ro
+    # Тримайте дані брокера в окремому каталозі для зручного бекапу.
+      - ./mosquitto/data:/mosquitto/data
+      - ./mosquitto/log:/mosquitto/log
+    restart: unless-stopped
     healthcheck:
-      test: ["CMD", "mosquitto_sub", "-h", "localhost", "-t", "healthcheck", "-C", "1"]
+      test: ["CMD", "mosquitto_sub", "-h", "localhost", "-t", "healthcheck", "-C", "1", "-W", "5"]
       interval: 30s
       timeout: 10s
       retries: 3
+    logging:
+      driver: local
+      options:
+        max-size: "5m"
+        max-file: "2"
+    networks:
+      - robotarm
 
-  pc-llm:
-    build: ./pc-llm-service
+  pc-llm-service:
+    build:
+      context: ./pc-llm-service
+    container_name: pc-llm-service
     environment:
-      - OLLAMA_MODEL=${OLLAMA_MODEL:-llama3.2:3b}
-      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
-      - CAMERA_DEVICE=${CAMERA_DEVICE:-/dev/video0}
-      - VECTOR_DB_PATH=${VECTOR_DB_PATH:-/service/data/vector_db}
-      - KNOWLEDGE_PATH=${KNOWLEDGE_PATH:-/service/knowledge}
+      # Якщо використовуєте зовнішній брокер, задайте MQTT_HOST/MQTT_PORT його адресою.
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3.2:3b}
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      CAMERA_DEVICE: ${CAMERA_DEVICE:-/dev/video0}
+      VECTOR_DB_PATH: ${VECTOR_DB_PATH:-/service/data/vector_db}
+      KNOWLEDGE_PATH: ${KNOWLEDGE_PATH:-/service/knowledge}
+      MQTT_HOST: ${MQTT_HOST:-mqtt}
+      MQTT_PORT: ${MQTT_PORT:-1883}
+      SHARED_PATH: /service/shared
     ports:
       - "8080:8080"
     volumes:
       - ./pc-llm-service/config.yaml:/service/config.yaml:ro
       - ./pc-llm-service/knowledge:/service/knowledge:ro
       - ./pc-llm-service/data:/service/data
-    depends_on:
-      - mqtt
+      - shared-data:/service/shared
+    devices:
+      - ${CAMERA_DEVICE:-/dev/video0}:${CAMERA_DEVICE:-/dev/video0}
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/system_status"]
       interval: 30s
       timeout: 10s
       retries: 5
+      start_period: 15s
+    logging:
+      driver: local
+      options:
+        max-size: "5m"
+        max-file: "2"
+    networks:
+      - robotarm
+
+networks:
+  robotarm:
+    driver: bridge
+
+volumes:
+  shared-data:
+    driver: local
