@@ -1,8 +1,6 @@
 import logging
 from typing import Any, Dict
 
-import httpx
-
 logger = logging.getLogger(__name__)
 
 
@@ -13,6 +11,8 @@ class PCClient:
         self.base_url = f"http://{host}:{port}"
 
     async def send_status(self, sensors: Dict[str, Any], actuators: Dict[str, Any]):
+        import httpx
+
         payload = {"sensors": sensors, "actuators": actuators}
         url = f"{self.base_url}/system_status"
         try:
@@ -22,6 +22,8 @@ class PCClient:
             logger.exception("Не вдалося відправити статус на ПК")
 
     async def request_decision(self, sensors: Dict[str, Any]):
+        import httpx
+
         url = f"{self.base_url}/make_decision"
         try:
             async with httpx.AsyncClient(timeout=20) as client:
