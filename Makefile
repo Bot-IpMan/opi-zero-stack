@@ -32,7 +32,7 @@ pc-build:
 
 pc-up:
 	@echo "${BLUE}[PC] Запуск сервісів ПК...${RESET}"
-	@CAM_DEV="${CAMERA_DEVICE:-/dev/video0}"; \
+	@CAM_DEV="$${CAMERA_DEVICE:-/dev/video0}"; \
 	if [ -e "$$CAM_DEV" ]; then \
 		echo "${BLUE}[PC] Камера виявлена ($$CAM_DEV). Проброшуємо пристрій...${RESET}"; \
 		docker compose -f docker-compose.pc.yml -f docker-compose.pc.camera.yml up -d; \
