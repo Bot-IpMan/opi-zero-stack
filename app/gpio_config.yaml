@@ -1,0 +1,11 @@
+# Приклад конфігурації GPIO та I2C для Orange Pi Zero
+pins:
+  light: 7
+  fan: 8
+  pump: 10
+sensors:
+  bme280_address: 0x76
+  vl53l0x_address: 0x29
+analog_channels:
+  soil_moisture: 0
+  light_level: 1
