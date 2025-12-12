@@ -4,3 +4,8 @@ mosquitto/log/
 **/mosquitto.db*
 **/*.pid
 **/*.log
+
+# Core dumps
+core
+core.*
+training/core.*
