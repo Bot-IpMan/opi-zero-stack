@@ -35,7 +35,7 @@ services:
       # Якщо використовуєте зовнішній брокер, задайте MQTT_HOST/MQTT_PORT його адресою.
       OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3.2:3b}
       OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
-      CAMERA_DEVICE: ${CAMERA_DEVICE:-/dev/video0}
+      CAMERA_DEVICE: ${CAMERA_DEVICE:-http://opi-zero:8000/camera/snapshot}
       VECTOR_DB_PATH: ${VECTOR_DB_PATH:-/service/data/vector_db}
       KNOWLEDGE_PATH: ${KNOWLEDGE_PATH:-/service/knowledge}
       MQTT_HOST: ${MQTT_HOST:-mqtt}

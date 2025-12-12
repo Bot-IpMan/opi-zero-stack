@@ -86,7 +86,9 @@ app = FastAPI(title="PC LLM Coordinator")
 @app.post("/analyze_image")
 async def analyze_image(payload: AnalyzeRequest):
     ctx = get_ctx()
-    device = payload.device or ctx.cfg["camera"].get("device", "/dev/video0")
+    device = payload.device or ctx.cfg["camera"].get(
+        "device", "http://opi-zero:8000/camera/snapshot"
+    )
     try:
         frame = capture_single(device)
         metrics = analyze_frame(frame)
@@ -114,7 +116,7 @@ async def system_status():
     ctx = get_ctx()
     mqtt_ok = ctx.mqtt.client.is_connected()
     try:
-        capture_single(ctx.cfg["camera"].get("device", "/dev/video0"))
+        capture_single(ctx.cfg["camera"].get("device", "http://opi-zero:8000/camera/snapshot"))
         camera_ok = True
     except CameraError:
         camera_ok = False
