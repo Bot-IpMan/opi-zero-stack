@@ -1,0 +1,33 @@
+version: "3.9"
+
+services:
+  mqtt:
+    image: eclipse-mosquitto:2
+    ports:
+      - "1883:1883"
+    healthcheck:
+      test: ["CMD", "mosquitto_sub", "-h", "localhost", "-t", "healthcheck", "-C", "1", "-W", "5"]
+      interval: 20s
+      timeout: 10s
+      retries: 3
+    networks:
+      - robotarm-test
+
+  test-runner:
+    image: python:3.11-slim
+    working_dir: /workspace/opi-zero-stack
+    depends_on:
+      mqtt:
+        condition: service_healthy
+    environment:
+      PYTHONPATH: "/workspace/opi-zero-stack/app:/workspace/opi-zero-stack/pc-llm-service"
+    volumes:
+      - .:/workspace/opi-zero-stack:ro
+    command: >-
+      sh -c "pip install -r app/requirements.txt -r pc-llm-service/requirements.txt pytest pytest-asyncio && pytest tests/integration"
+    networks:
+      - robotarm-test
+
+networks:
+  robotarm-test:
+    driver: bridge

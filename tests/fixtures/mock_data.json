@@ -1,0 +1,11 @@
+{
+  "sensors": {
+    "environment": {"temperature": 22.5, "humidity": 48.2, "pressure": 1002.1},
+    "distance_mm": 215.0,
+    "obstacle": false,
+    "soil_moisture": 580.0,
+    "light_level": 430.0,
+    "timestamp": 1700000000.0
+  },
+  "decision": {"action": "water", "reason": "low humidity"}
+}
