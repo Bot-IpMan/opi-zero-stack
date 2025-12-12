@@ -27,7 +27,7 @@ docker compose -f docker-compose.pc.yml --profile with-mqtt up -d
 curl http://localhost:8080/system_status
 ```
 - Сервіс монтує `pc-llm-service/config.yaml`, `knowledge/` і `data/` у контейнер.
-- Камера проброшується автоматично через `CAMERA_DEVICE` (за замовчуванням `/dev/video0`).
+- Камера проброшується автоматично через `CAMERA_DEVICE` (за замовчуванням `/dev/video0`), але `make pc-up` автоматично запускає сервіс без пробросу, якщо пристрій відсутній.
 
 ## 3) Розгортання на Orange Pi Zero
 ```bash
