@@ -1,8 +1,13 @@
 import logging
-from typing import Dict, Any
+from typing import Any, Dict
+
 import cv2
 
 logger = logging.getLogger(__name__)
+
+
+class CameraError(RuntimeError):
+    """Помилка доступу до відеопристрою."""
 
 
 def analyze_frame(frame) -> Dict[str, Any]:
@@ -12,7 +17,7 @@ def analyze_frame(frame) -> Dict[str, Any]:
     вже дозволяє LLM приймати рішення щодо освітлення/фокусу.
     """
     if frame is None:
-        return {"error": "frame_not_available"}
+        raise CameraError("frame_not_available")
 
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
     brightness = float(gray.mean())
@@ -26,10 +31,15 @@ def analyze_frame(frame) -> Dict[str, Any]:
 
 
 def capture_single(device: str = "/dev/video0"):
+    """Return a single frame or raise CameraError."""
+
     cap = cv2.VideoCapture(device)
     if not cap.isOpened():
         logger.warning("Не вдалося відкрити камеру %s", device)
-        return None
+        raise CameraError(f"camera_unavailable:{device}")
+
     ret, frame = cap.read()
     cap.release()
-    return frame if ret else None
+    if not ret:
+        raise CameraError("empty_frame")
+    return frame
