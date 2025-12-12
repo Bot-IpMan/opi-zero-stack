@@ -1,7 +1,10 @@
 import json
 
 import pytest
-from httpx import AsyncClient, ASGITransport
+
+httpx = pytest.importorskip("httpx")
+AsyncClient = httpx.AsyncClient
+ASGITransport = httpx.ASGITransport
 
 
 @pytest.mark.asyncio

@@ -1,7 +1,9 @@
 import importlib.util
-import httpx
-import pytest
 from pathlib import Path
+
+import pytest
+
+httpx = pytest.importorskip("httpx")
 
 ROOT = Path(__file__).resolve().parents[2]
 MODULE_PATH = ROOT / "pc-llm-service" / "llm_service.py"

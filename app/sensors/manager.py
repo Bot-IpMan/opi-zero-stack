@@ -47,10 +47,17 @@ class SensorManager:
         )
 
         payload: Dict[str, object] = {item.name: item.payload for item in readings}
+        distance_payload = payload.get("distance_mm")
+        distance_value = (
+            distance_payload.get("value")
+            if isinstance(distance_payload, dict) and "value" in distance_payload
+            else distance_payload
+        )
+
         flattened = {
             "timestamp": time.time(),
             "environment": payload.get("environment", {}),
-            "distance_mm": payload.get("distance_mm"),
+            "distance_mm": distance_value,
             "obstacle": payload.get("obstacle"),
             "soil_moisture": payload.get("analog", {}).get("soil_moisture"),
             "light_level": payload.get("analog", {}).get("light_level"),

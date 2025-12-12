@@ -1,11 +1,17 @@
 import asyncio
 import importlib
 import json
+import sys
 from pathlib import Path
 from typing import Any, Dict, Tuple
 from unittest.mock import MagicMock
 
 import pytest
+
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
 from app import pc_client as pc_client_module
 
@@ -44,6 +50,11 @@ def mock_data() -> Dict[str, Any]:
 
 @pytest.fixture()
 def patched_main(monkeypatch):
+    pytest.importorskip("serial")
+    pytest.importorskip("paho.mqtt.client")
+    pytest.importorskip("fastapi")
+    pytest.importorskip("numpy")
+
     import serial
     import paho.mqtt.client as mqtt
 
