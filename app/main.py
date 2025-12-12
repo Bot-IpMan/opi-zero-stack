@@ -6,7 +6,8 @@ import json
 import logging
 import os
 import time
-from typing import Any, Dict, Optional
+from datetime import datetime
+from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 import paho.mqtt.client as mqtt
@@ -34,6 +35,9 @@ PINS = {
     "pump": int(os.getenv("RELAY_PUMP_PIN", "10")),
 }
 
+# JSON з розкладом поливу вигляду [{"time": "07:30", "duration": 10}]
+IRRIGATION_SCHEDULE = os.getenv("IRRIGATION_SCHEDULE", "[]")
+
 
 class DeviceRequest(BaseModel):
     on: bool
@@ -59,11 +63,33 @@ class ExecutorContext:
         self.pc_client = PCClient(PC_HOST, PC_PORT)
         self.command_cache: list[Dict[str, Any]] = []
         self.emergency = False
-        logger.info("Executor готовий. PC=%s:%s MQTT=%s:%s", PC_HOST, PC_PORT, MQTT_HOST, MQTT_PORT)
+        self.last_schedule_trigger: Dict[str, str] = {}
+        self.irrigation_schedule: List[Tuple[str, int]] = self._load_schedule(IRRIGATION_SCHEDULE)
+        logger.info(
+            "Executor готовий. PC=%s:%s MQTT=%s:%s, розклад=%s",
+            PC_HOST,
+            PC_PORT,
+            MQTT_HOST,
+            MQTT_PORT,
+            self.irrigation_schedule,
+        )
 
     def cache_command(self, name: str, payload: Dict[str, Any]):
         self.command_cache.append({"name": name, "payload": payload, "ts": time.time()})
         self.command_cache = self.command_cache[-50:]
+
+    def _load_schedule(self, schedule_json: str) -> List[Tuple[str, int]]:
+        """Завантаження розкладу поливу з env (HH:MM, тривалість у секундах)."""
+        try:
+            parsed = json.loads(schedule_json)
+            return [
+                (item["time"], int(item.get("duration", 0)))
+                for item in parsed
+                if "time" in item and "duration" in item
+            ]
+        except Exception:
+            logger.warning("Не вдалося розпарсити розклад поливу")
+            return []
 
     async def safe_serial_write(self, payload: dict):
         async with self.serial_lock:
@@ -85,14 +111,40 @@ class ExecutorContext:
                 await asyncio.sleep(1)
                 continue
             sensor_data = self.sensors.read_all()
-            # Проста логіка: якщо вологість < 45 — увімкнути помпу на 5с
-            humidity = sensor_data["environment"]["humidity"]
-            if humidity < 45:
-                self.actuators.set_pump(True)
-                await asyncio.sleep(5)
-                self.actuators.set_pump(False)
+            # Локальна логіка: перевірка вологості + розклад поливу
+            humidity = sensor_data.get("environment", {}).get("humidity", 100)
+            try:
+                if humidity < 45:
+                    await self._run_pump_safely(5, reason="low_humidity")
+                await self._run_schedule()
+            except Exception:
+                logger.exception("Помилка в автоматичній логіці, зупинка для безпеки")
+                await self.emergency_stop()
+
             await self.pc_client.send_status(sensor_data, self.actuators.states())
             await asyncio.sleep(10)
+
+    async def _run_pump_safely(self, duration: int, reason: str):
+        """Безпечний запуск помпи з кешуванням команди."""
+        if self.emergency:
+            return
+        self.actuators.set_pump(True)
+        self.cache_command("pump_auto", {"duration": duration, "reason": reason})
+        await asyncio.sleep(duration)
+        self.actuators.set_pump(False)
+
+    async def _run_schedule(self):
+        """Виконання поливу за розкладом (раз на хвилину перевіряємо час)."""
+        if not self.irrigation_schedule:
+            return
+        now_dt = datetime.now()
+        now = now_dt.strftime("%H:%M")
+        for slot_time, duration in self.irrigation_schedule:
+            last_tag = self.last_schedule_trigger.get(slot_time)
+            today_tag = now_dt.strftime("%Y-%m-%d")
+            if slot_time == now and duration > 0 and last_tag != today_tag:
+                await self._run_pump_safely(duration, reason="scheduled")
+                self.last_schedule_trigger[slot_time] = today_tag
 
 
 ctx = ExecutorContext()
