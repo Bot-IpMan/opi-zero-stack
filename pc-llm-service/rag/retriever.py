@@ -1,9 +1,12 @@
 import json
+import logging
 import pathlib
 from typing import List
 
 from .embeddings import Embedder
 from .vector_store import VectorStore
+
+logger = logging.getLogger(__name__)
 
 
 class Retriever:
@@ -14,6 +17,10 @@ class Retriever:
         self._ensure_index()
 
     def _ensure_index(self):
+        if not self.kb_path.exists():
+            logger.warning("Knowledge path %s does not exist", self.kb_path)
+            return
+
         docs = []
         for json_file in self.kb_path.glob("*.json"):
             data = json.loads(json_file.read_text())
@@ -27,6 +34,9 @@ class Retriever:
                 )
         if docs:
             self.vector_store.add(docs)
+            logger.info("RAG індекс з %s документів готовий", len(docs))
+        else:
+            logger.warning("Не знайдено жодного RAG документа у %s", self.kb_path)
 
     def retrieve(self, query: str, top_k: int = 3) -> List[str]:
         return self.vector_store.query(self.embedder.encode, query, top_k=top_k)
