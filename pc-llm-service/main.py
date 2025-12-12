@@ -13,9 +13,10 @@ from pydantic import BaseModel, Field
 
 from llm_service import LLMService
 from mqtt_client import MQTTClient
+from opi_client import OPIClient
 from rag.retriever import Retriever
 from rag_llm import RAGPipeline
-from vision_processor import CameraError, analyze_frame, capture_single
+from vision_processor import CameraError, analyze_frame, capture_single, decode_frame
 
 logging.basicConfig(level=logging.INFO, format="[%(levelname)s] %(name)s: %(message)s")
 logger = logging.getLogger(__name__)
@@ -41,7 +42,7 @@ def load_config() -> dict:
 
 
 class AnalyzeRequest(BaseModel):
-    device: Optional[str] = Field(None, description="Path to camera device")
+    device: Optional[str] = Field(None, description="Path to camera device; omit to use Orange Pi feed")
 
 
 class DecisionRequest(BaseModel):
@@ -72,6 +73,12 @@ class AppContext:
             mqtt_cfg.get("topic_prefix", "greenhouse"),
         )
         self.mqtt.loop_background()
+        opi_cfg = raw_cfg.get("opi", {})
+        self.opi = OPIClient(
+            opi_cfg.get("host", "opi-zero"),
+            opi_cfg.get("port", 8000),
+            opi_cfg.get("camera_path", "/camera/frame"),
+        )
         logger.info("AppContext initialized")
 
 
@@ -86,9 +93,16 @@ app = FastAPI(title="PC LLM Coordinator")
 @app.post("/analyze_image")
 async def analyze_image(payload: AnalyzeRequest):
     ctx = get_ctx()
-    device = payload.device or ctx.cfg["camera"].get("device", "/dev/video0")
+    device = payload.device or ctx.cfg["camera"].get("device")
     try:
-        frame = capture_single(device)
+        if device:
+            frame = capture_single(device)
+        else:
+            try:
+                content = await ctx.opi.fetch_camera_frame()
+            except Exception as exc:  # noqa: BLE001 - surface upstream camera issues
+                raise CameraError(f"opi_camera_unreachable:{exc}") from exc
+            frame = decode_frame(content)
         metrics = analyze_frame(frame)
         summary = await ctx.llm.summarize(str(metrics))
     except CameraError as exc:
@@ -114,7 +128,14 @@ async def system_status():
     ctx = get_ctx()
     mqtt_ok = ctx.mqtt.client.is_connected()
     try:
-        capture_single(ctx.cfg["camera"].get("device", "/dev/video0"))
+        if ctx.cfg["camera"].get("device"):
+            capture_single(ctx.cfg["camera"].get("device", "/dev/video0"))
+        else:
+            try:
+                content = await ctx.opi.fetch_camera_frame()
+            except Exception as exc:  # noqa: BLE001 - surface upstream camera issues
+                raise CameraError(f"opi_camera_unreachable:{exc}") from exc
+            decode_frame(content)
         camera_ok = True
     except CameraError:
         camera_ok = False

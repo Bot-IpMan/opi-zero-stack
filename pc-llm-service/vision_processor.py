@@ -2,6 +2,7 @@ import logging
 from typing import Any, Dict
 
 import cv2
+import numpy as np
 
 logger = logging.getLogger(__name__)
 
@@ -42,4 +43,17 @@ def capture_single(device: str = "/dev/video0"):
     cap.release()
     if not ret:
         raise CameraError("empty_frame")
+    return frame
+
+
+def decode_frame(buffer: bytes):
+    """Decode JPEG/PNG bytes into a BGR frame."""
+
+    if not buffer:
+        raise CameraError("empty_frame")
+
+    np_buf = np.frombuffer(buffer, dtype=np.uint8)
+    frame = cv2.imdecode(np_buf, cv2.IMREAD_COLOR)
+    if frame is None:
+        raise CameraError("decode_failed")
     return frame

@@ -36,6 +36,9 @@ services:
       OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3.2:3b}
       OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
       CAMERA_DEVICE: ${CAMERA_DEVICE:-/dev/video0}
+      OPI_HOST: ${OPI_HOST:-opi-zero}
+      OPI_PORT: ${OPI_PORT:-8000}
+      OPI_CAMERA_PATH: ${OPI_CAMERA_PATH:-/camera/frame}
       VECTOR_DB_PATH: ${VECTOR_DB_PATH:-/service/data/vector_db}
       KNOWLEDGE_PATH: ${KNOWLEDGE_PATH:-/service/knowledge}
       MQTT_HOST: ${MQTT_HOST:-mqtt}
@@ -48,8 +51,6 @@ services:
       - ./pc-llm-service/knowledge:/service/knowledge:ro
       - ./pc-llm-service/data:/service/data
       - shared-data:/service/shared
-    devices:
-      - ${CAMERA_DEVICE:-/dev/video0}:${CAMERA_DEVICE:-/dev/video0}
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/system_status"]

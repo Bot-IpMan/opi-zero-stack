@@ -27,7 +27,7 @@ docker compose -f docker-compose.pc.yml --profile with-mqtt up -d
 curl http://localhost:8080/system_status
 ```
 - Сервіс монтує `pc-llm-service/config.yaml`, `knowledge/` і `data/` у контейнер.
-- Камера проброшується автоматично через `CAMERA_DEVICE` (за замовчуванням `/dev/video0`).
+- Камера під'єднується до Orange Pi Zero і стрімиться через `http://<opi>:8000/camera/frame`; запуск `make pc-up` на ПК не потребує жодного пробросу пристрою.
 
 ## 3) Розгортання на Orange Pi Zero
 ```bash
@@ -42,6 +42,7 @@ docker compose -f docker-compose.orangepi.yml up -d app mqttc
 curl http://localhost:8000/healthz
 ```
 - Контейнер отримує доступ до серійного порту через `SERIAL_DEV` та монтує `app/model.tflite`.
+- Відеопотік з камери (наприклад, `/dev/video0`) автоматично прокидається в контейнер і доступний через endpoint `/camera/frame` для ПК.
 - Для швидкого доступу до MQTT використовується `network_mode: host`.
 
 ## 4) Прошивка Arduino Mega + PCA9685

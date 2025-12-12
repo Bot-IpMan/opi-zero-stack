@@ -13,7 +13,10 @@ import numpy as np
 import paho.mqtt.client as mqtt
 import serial
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import Response
 from pydantic import BaseModel
+
+import cv2
 
 from actuators import ActuatorManager
 from pc_client import PCClient
@@ -24,6 +27,9 @@ logger = logging.getLogger(__name__)
 
 MODEL_PATH = os.getenv("MODEL_PATH", "")
 SERIAL_DEV = os.getenv("SERIAL_DEV", "/dev/ttyACM0")
+CAMERA_DEVICE = os.getenv("CAMERA_DEVICE", "/dev/video0")
+CAMERA_WIDTH = int(os.getenv("CAMERA_WIDTH", "640"))
+CAMERA_HEIGHT = int(os.getenv("CAMERA_HEIGHT", "480"))
 MQTT_HOST = os.getenv("MQTT_HOST", "mqtt")
 MQTT_PORT = int(os.getenv("MQTT_PORT", 1883))
 PC_HOST = os.getenv("PC_HOST", "pc")
@@ -61,6 +67,7 @@ class ExecutorContext:
         self.mqtt.connect(MQTT_HOST, MQTT_PORT, 60)
         self.mqtt.loop_start()
         self.pc_client = PCClient(PC_HOST, PC_PORT)
+        self.camera_lock = asyncio.Lock()
         self.command_cache: list[Dict[str, Any]] = []
         self.emergency = False
         self.last_schedule_trigger: Dict[str, str] = {}
@@ -201,12 +208,22 @@ async def healthz():
         "mqtt": ctx.mqtt.is_connected(),
         "emergency": ctx.emergency,
         "cache_size": len(ctx.command_cache),
+        "camera": await _camera_status(),
     }
+
+
+async def _camera_status() -> bool:
+    try:
+        async with ctx.camera_lock:
+            await asyncio.get_event_loop().run_in_executor(None, _capture_frame)
+        return True
+    except Exception:  # noqa: BLE001 - healthcheck only needs boolean
+        return False
 
 
 @app.get("/cache")
 async def cache():
-    return ctx.command_cache
+        return ctx.command_cache
 
 
 @app.post("/decide")
@@ -214,6 +231,37 @@ async def delegate_decision():
     sensors = ctx.sensors.read_all()
     decision = await ctx.pc_client.request_decision(sensors)
     return {"sensors": sensors, "decision": decision}
+
+
+def _capture_frame() -> bytes:
+    cap = cv2.VideoCapture(CAMERA_DEVICE)
+    if not cap.isOpened():
+        raise RuntimeError(f"camera_unavailable:{CAMERA_DEVICE}")
+
+    cap.set(cv2.CAP_PROP_FRAME_WIDTH, CAMERA_WIDTH)
+    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, CAMERA_HEIGHT)
+
+    ret, frame = cap.read()
+    cap.release()
+    if not ret:
+        raise RuntimeError("empty_frame")
+
+    ok, encoded = cv2.imencode(".jpg", frame)
+    if not ok:
+        raise RuntimeError("encode_failed")
+    return encoded.tobytes()
+
+
+@app.get("/camera/frame")
+async def camera_frame():
+    try:
+        async with ctx.camera_lock:
+            frame_bytes = await asyncio.get_event_loop().run_in_executor(None, _capture_frame)
+    except Exception as exc:  # noqa: BLE001 - surface camera issue to client
+        logger.warning("Помилка доступу до камери: %s", exc)
+        raise HTTPException(status_code=503, detail=str(exc))
+
+    return Response(content=frame_bytes, media_type="image/jpeg")
 
 
 # Опційний RL інференс, якщо модель існує

@@ -10,6 +10,9 @@ services:
     network_mode: host  # Мінімізує затримки MQTT та дає прямий доступ до серійного порту.
     environment:
       SERIAL_DEV: ${SERIAL_DEV:-/dev/ttyACM0}
+      CAMERA_DEVICE: ${CAMERA_DEVICE:-/dev/video0}
+      CAMERA_WIDTH: ${CAMERA_WIDTH:-640}
+      CAMERA_HEIGHT: ${CAMERA_HEIGHT:-480}
       MQTT_HOST: ${MQTT_HOST:-192.168.1.100}  # IP/хост ПК з брокером MQTT.
       MQTT_PORT: ${MQTT_PORT:-1883}
       PC_HOST: ${PC_HOST:-192.168.1.100}
@@ -22,8 +25,10 @@ services:
       - shared-data:/app/shared
     devices:
       - ${SERIAL_DEV:-/dev/ttyACM0}:${SERIAL_DEV:-/dev/ttyACM0}
+      - ${CAMERA_DEVICE:-/dev/video0}:${CAMERA_DEVICE:-/dev/video0}
     device_cgroup_rules:
       - "c 166:* rmw"
+      - "c 81:* rmw"
     group_add:
       - "20"
     restart: unless-stopped
