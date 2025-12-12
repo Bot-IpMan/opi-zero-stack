@@ -1,311 +1,195 @@
 #!/usr/bin/env python3
-"""
-Orange Pi Zero: RL Inference + YOLO Integration
-"""
+"""Orange Pi Zero: виконавець команд від ПК з локальною логікою."""
 
-import os
-import json
-import time
 import asyncio
+import json
 import logging
-import tflite_runtime.interpreter as tflite
-import serial
-import paho.mqtt.client as mqtt
+import os
+import time
+from typing import Any, Dict, Optional
+
 import numpy as np
+import paho.mqtt.client as mqtt
+import serial
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
-from typing import Optional
-from threading import Thread, Lock
 
-logging.basicConfig(level=logging.INFO)
+from actuators import ActuatorManager
+from pc_client import PCClient
+from sensors import SensorManager
+
+logging.basicConfig(level=logging.INFO, format="[%(levelname)s] %(name)s: %(message)s")
 logger = logging.getLogger(__name__)
 
-# Конфіг
-MODEL_PATH = os.getenv("MODEL_PATH", "/app/model.tflite")
+MODEL_PATH = os.getenv("MODEL_PATH", "")
 SERIAL_DEV = os.getenv("SERIAL_DEV", "/dev/ttyACM0")
 MQTT_HOST = os.getenv("MQTT_HOST", "mqtt")
 MQTT_PORT = int(os.getenv("MQTT_PORT", 1883))
-DUMMY_MODEL = os.getenv("DUMMY_MODEL", "0") == "1"
+PC_HOST = os.getenv("PC_HOST", "pc")
+PC_PORT = int(os.getenv("PC_PORT", 8080))
 
-app = FastAPI(title="Robot Arm RL Controller")
+PINS = {
+    "light": int(os.getenv("RELAY_LIGHT_PIN", "7")),
+    "fan": int(os.getenv("RELAY_FAN_PIN", "8")),
+    "pump": int(os.getenv("RELAY_PUMP_PIN", "10")),
+}
 
-class YOLODetection(BaseModel):
-    objects: list
-    timestamp: float
-    inference_time_ms: float
 
-class RobotState(BaseModel):
-    joint_angles: list[float]
-    target_object: Optional[dict] = None
-    action: Optional[list[float]] = None
-    serial_ack: Optional[str] = None
+class DeviceRequest(BaseModel):
+    on: bool
+    reason: Optional[str] = None
 
-class RobotController:
+
+class ArmMoveRequest(BaseModel):
+    angles: list[float]
+
+
+app = FastAPI(title="Orange Pi Zero Executor")
+
+
+class ExecutorContext:
     def __init__(self):
-        # TFLite інтерпретатор
-        self.interpreter = None
-        self.input_details = None
-        self.output_details = None
-        self.load_model()
-        
-        # Serial комунікація
-        self.serial_port = None
-        self.serial_lock = Lock()
-        self.init_serial()
-        
-        # MQTT
-        self.mqtt_client = mqtt.Client()
-        self.mqtt_client.on_message = self.on_mqtt_message
-        self.mqtt_client.connect(MQTT_HOST, MQTT_PORT, 60)
-        self.mqtt_client.subscribe("arm/vision/objects")
-        
-        # Стан
-        self.current_state = np.zeros(9, dtype=np.float32)  # [joints(6), yolo(3)]
-        self.joint_angles = np.zeros(6, dtype=np.float32)
-        self.yolo_target = np.zeros(3, dtype=np.float32)
-        self.last_detection_time = 0
-        
-        # MQTT loop в окремому потоці
-        mqtt_thread = Thread(target=self.mqtt_client.loop_forever, daemon=True)
-        mqtt_thread.start()
-        
-        logger.info("✅ RobotController ініціалізовано")
-    
-    def load_model(self):
-        """Завантажити TFLite модель"""
-        if DUMMY_MODEL:
-            logger.info("🔧 DUMMY_MODEL=1 - модель не завантажується")
-            return
-        
-        try:
-            self.interpreter = tflite.Interpreter(model_path=MODEL_PATH)
-            self.interpreter.allocate_tensors()
-            
-            self.input_details = self.interpreter.get_input_details()
-            self.output_details = self.interpreter.get_output_details()
-            
-            logger.info(f"✅ Модель завантажена: {MODEL_PATH}")
-        except Exception as e:
-            logger.error(f"❌ Помилка завантаження моделі: {e}")
-            raise
-    
-    def init_serial(self):
-        """Ініціалізація Serial портом"""
-        try:
-            self.serial_port = serial.Serial(
-                SERIAL_DEV,
-                baudrate=115200,
-                timeout=1
-            )
-            time.sleep(2)  # Очікування Arduino ініціалізації
-            self.serial_port.reset_input_buffer()
-            self.serial_port.reset_output_buffer()
-            logger.info(f"✅ Serial підключено: {SERIAL_DEV}")
-        except Exception as e:
-            logger.error(f"❌ Serial помилка: {e}")
-            raise
-    
-    def on_mqtt_message(self, client, userdata, msg):
-        """Обробка YOLO детекцій"""
-        if msg.topic == "arm/vision/objects":
-            try:
-                data = json.loads(msg.payload)
-                self.last_detection_time = time.time()
-                
-                # Витяг першого об'єкта
-                if data.get("objects"):
-                    obj = data["objects"][0]
-                    self.yolo_target[0] = obj.get("x", 0.0)
-                    self.yolo_target[1] = obj.get("y", 0.0)
-                    self.yolo_target[2] = obj.get("confidence", 0.0)
-                else:
-                    self.yolo_target = np.zeros(3, dtype=np.float32)
-                
-                logger.debug(f"📷 YOLO target: {self.yolo_target}")
-            except Exception as e:
-                logger.error(f"❌ MQTT parse error: {e}")
-    
-    def predict(self, observation: np.ndarray) -> np.ndarray:
-        """RL інференс"""
-        if DUMMY_MODEL:
-            # Повернути спостереження як є (тестування)
-            return observation[:6]
-        
-        try:
-            # Нормалізація
-            obs = observation.reshape(1, -1).astype(np.float32)
-            
-            # Інференс
-            self.interpreter.set_tensor(
-                self.input_details[0]['index'],
-                obs
-            )
-            self.interpreter.invoke()
-            
-            action = self.interpreter.get_tensor(
-                self.output_details[0]['index']
-            )[0]
-            
-            return action
-        except Exception as e:
-            logger.error(f"❌ Inference error: {e}")
-            return np.zeros(6, dtype=np.float32)
-    
-    def send_action(self, action: np.ndarray) -> bool:
-        """Відправка дії на Arduino"""
-        if not self.serial_port:
-            return False
-        
-        try:
-            with self.serial_lock:
-                command = {
-                    "action": action.tolist(),
-                    "timestamp": time.time()
-                }
-                
-                json_str = json.dumps(command) + '\r\n'
-                self.serial_port.write(json_str.encode())
-                
-                # Очікування ACK
-                ack_timeout = 0.75
-                start = time.time()
-                ack = ""
-                
-                while time.time() - start < ack_timeout:
-                    if self.serial_port.in_waiting:
-                        ack = self.serial_port.readline().decode().strip()
-                        if ack:
-                            break
-                    time.sleep(0.05)
-                
-                if ack == "ACK":
-                    logger.debug(f"✅ ACK отримано")
-                    return True
-                else:
-                    logger.warning(f"⚠️ Очікувалось ACK, отримано: {ack}")
-                    return False
-        except Exception as e:
-            logger.error(f"❌ Serial send error: {e}")
-            return False
-    
-    def get_state(self) -> RobotState:
-        """Отримати поточний стан"""
-        with self.serial_lock:
-            try:
-                self.serial_port.write(b'GET_STATE\r\n')
-                response = self.serial_port.readline().decode().strip()
-                
-                data = json.loads(response)
-                self.joint_angles = np.array(data.get("joint_positions", [0]*6), dtype=np.float32)
-                
-                return RobotState(
-                    joint_angles=self.joint_angles.tolist(),
-                    target_object={
-                        "x": self.yolo_target[0],
-                        "y": self.yolo_target[1],
-                        "confidence": self.yolo_target[2]
-                    } if self.yolo_target[2] > 0.5 else None
-                )
-            except Exception as e:
-                logger.error(f"❌ Get state error: {e}")
-                return RobotState(joint_angles=self.joint_angles.tolist())
-    
-    def control_loop(self):
-        """Основний цикл керування"""
-        logger.info("🚀 Запуск control loop...")
-        
-        loop_time = 0.05  # 20 Hz
-        last_time = time.time()
-        
-        while True:
-            try:
-                start = time.time()
-                
-                # Оновлення спостереження
-                self.current_state[:6] = self.joint_angles
-                self.current_state[6:9] = self.yolo_target
-                
-                # RL інференс
-                action = self.predict(self.current_state)
-                
-                # Відправка на Arduino
-                success = self.send_action(action)
-                
-                # Читання стану
-                state = self.get_state()
-                
-                # Частота
-                elapsed = time.time() - start
-                if elapsed < loop_time:
-                    time.sleep(loop_time - elapsed)
-                
-                freq = 1.0 / (time.time() - start)
-                print(f"🔄 Freq: {freq:.1f}Hz | YOLO conf: {self.yolo_target[2]:.2f}", end='\r')
-            
-            except KeyboardInterrupt:
-                logger.info("🛑 Зупинка control loop...")
-                break
-            except Exception as e:
-                logger.error(f"❌ Control loop error: {e}")
-                time.sleep(0.1)
+        self.sensors = SensorManager()
+        self.actuators = ActuatorManager(PINS)
+        self.serial_lock = asyncio.Lock()
+        self.serial_port = serial.Serial(SERIAL_DEV, baudrate=115200, timeout=1)
+        self.mqtt = mqtt.Client()
+        self.mqtt.connect(MQTT_HOST, MQTT_PORT, 60)
+        self.mqtt.loop_start()
+        self.pc_client = PCClient(PC_HOST, PC_PORT)
+        self.command_cache: list[Dict[str, Any]] = []
+        self.emergency = False
+        logger.info("Executor готовий. PC=%s:%s MQTT=%s:%s", PC_HOST, PC_PORT, MQTT_HOST, MQTT_PORT)
 
-controller = None
+    def cache_command(self, name: str, payload: Dict[str, Any]):
+        self.command_cache.append({"name": name, "payload": payload, "ts": time.time()})
+        self.command_cache = self.command_cache[-50:]
+
+    async def safe_serial_write(self, payload: dict):
+        async with self.serial_lock:
+            data = json.dumps(payload) + "\n"
+            self.serial_port.write(data.encode())
+            return self.serial_port.readline().decode().strip()
+
+    async def emergency_stop(self):
+        self.emergency = True
+        await self.safe_serial_write({"cmd": "emergency_stop"})
+        self.actuators.set_fan(False)
+        self.actuators.set_light(False)
+        self.actuators.set_pump(False)
+        logger.warning("Аварійна зупинка активована")
+
+    async def scheduler_loop(self):
+        while True:
+            if self.emergency:
+                await asyncio.sleep(1)
+                continue
+            sensor_data = self.sensors.read_all()
+            # Проста логіка: якщо вологість < 45 — увімкнути помпу на 5с
+            humidity = sensor_data["environment"]["humidity"]
+            if humidity < 45:
+                self.actuators.set_pump(True)
+                await asyncio.sleep(5)
+                self.actuators.set_pump(False)
+            await self.pc_client.send_status(sensor_data, self.actuators.states())
+            await asyncio.sleep(10)
+
+
+ctx = ExecutorContext()
+
 
 @app.on_event("startup")
 async def startup():
-    global controller
-    controller = RobotController()
-    
-    # Запуск control loop в окремому потоці
-    control_thread = Thread(target=controller.control_loop, daemon=True)
-    control_thread.start()
+    asyncio.create_task(ctx.scheduler_loop())
+
+
+@app.post("/devices/light")
+async def control_light(req: DeviceRequest):
+    ctx.cache_command("light", req.dict())
+    return {"state": ctx.actuators.set_light(req.on)}
+
+
+@app.post("/devices/fan")
+async def control_fan(req: DeviceRequest):
+    ctx.cache_command("fan", req.dict())
+    return {"state": ctx.actuators.set_fan(req.on)}
+
+
+@app.post("/devices/pump")
+async def control_pump(req: DeviceRequest):
+    ctx.cache_command("pump", req.dict())
+    return {"state": ctx.actuators.set_pump(req.on)}
+
+
+@app.post("/arm/move")
+async def move_arm(req: ArmMoveRequest):
+    if ctx.emergency:
+        raise HTTPException(status_code=400, detail="Аварійний режим активний")
+    payload = {"cmd": "move_servo", "angles": req.angles}
+    ack = await ctx.safe_serial_write(payload)
+    ctx.cache_command("arm_move", payload)
+    return {"ack": ack or "no_ack"}
+
+
+@app.get("/sensors/all")
+async def read_sensors():
+    return ctx.sensors.read_all()
+
+
+@app.post("/emergency_stop")
+async def emergency_stop():
+    await ctx.emergency_stop()
+    return {"status": "stopped"}
+
 
 @app.get("/healthz")
 async def healthz():
-    """Health check"""
     return {
-        "status": "ok",
-        "model_loaded": controller.interpreter is not None,
-        "serial_connected": controller.serial_port is not None,
-        "mqtt_connected": controller.mqtt_client._sock is not None
+        "serial": ctx.serial_port.is_open,
+        "mqtt": ctx.mqtt.is_connected(),
+        "emergency": ctx.emergency,
+        "cache_size": len(ctx.command_cache),
     }
 
-@app.get("/state")
-async def get_robot_state():
-    """Отримати поточний стан"""
-    return controller.get_state()
 
-@app.post("/predict")
-async def predict(data: dict):
-    """
-    Ручний запит до RL моделі
-    Input: {"x": [6 joint angles або 9: joints+yolo]}
-    """
-    try:
-        obs = np.array(data.get("x", [0]*9), dtype=np.float32)
-        if len(obs) == 6:
-            # Доповнити YOLO даними
-            obs = np.concatenate([obs, controller.yolo_target])
-        
-        action = controller.predict(obs)
-        success = controller.send_action(action)
-        
-        state = controller.get_state()
-        
-        return {
-            "action": action.tolist(),
-            "serial_ack": "ACK" if success else "NACK",
-            "robot_state": state.dict()
-        }
-    except Exception as e:
-        logger.error(f"❌ Predict error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+@app.get("/cache")
+async def cache():
+    return ctx.command_cache
 
-@app.get("/metrics")
-async def metrics():
-    """Метрики системи"""
-    return {
-        "yolo_target": controller.yolo_target.tolist(),
-        "joint_angles": controller.joint_angles.tolist(),
-        "last_detection": controller.last_detection_time
-    }
+
+@app.post("/decide")
+async def delegate_decision():
+    sensors = ctx.sensors.read_all()
+    decision = await ctx.pc_client.request_decision(sensors)
+    return {"sensors": sensors, "decision": decision}
+
+
+# Опційний RL інференс, якщо модель існує
+if MODEL_PATH and os.path.exists(MODEL_PATH):
+    import tflite_runtime.interpreter as tflite
+
+    interpreter = tflite.Interpreter(model_path=MODEL_PATH)
+    interpreter.allocate_tensors()
+    input_details = interpreter.get_input_details()
+    output_details = interpreter.get_output_details()
+
+    def rl_inference(observation: np.ndarray) -> np.ndarray:
+        obs = observation.reshape(1, -1).astype(np.float32)
+        interpreter.set_tensor(input_details[0]["index"], obs)
+        interpreter.invoke()
+        return interpreter.get_tensor(output_details[0]["index"])[0]
+else:
+    def rl_inference(observation: np.ndarray) -> np.ndarray:  # type: ignore
+        return observation
+
+
+@app.post("/rl_infer")
+async def rl_infer(payload: Dict[str, Any]):
+    obs = np.array(payload.get("observation", [0] * 6), dtype=np.float32)
+    return {"action": rl_inference(obs).tolist()}
+
+
+if __name__ == "__main__":
+    import uvicorn
+
+    uvicorn.run("main:app", host="0.0.0.0", port=8000)

@@ -1,0 +1,39 @@
+version: "3.9"
+services:
+  mqtt:
+    image: eclipse-mosquitto:2
+    restart: unless-stopped
+    ports:
+      - "1883:1883"
+    volumes:
+      - ./mosquitto:/mosquitto
+    healthcheck:
+      test: ["CMD", "mosquitto_sub", "-h", "localhost", "-t", "healthcheck", "-C", "1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  opi-executor:
+    build: ./app
+    environment:
+      - SERIAL_DEV=${SERIAL_DEV:-/dev/ttyACM0}
+      - MQTT_HOST=mqtt
+      - MQTT_PORT=1883
+      - PC_HOST=${PC_HOST:-pc}
+      - PC_PORT=${PC_PORT:-8080}
+      - RELAY_LIGHT_PIN=${RELAY_LIGHT_PIN:-7}
+      - RELAY_FAN_PIN=${RELAY_FAN_PIN:-8}
+      - RELAY_PUMP_PIN=${RELAY_PUMP_PIN:-10}
+      - MODEL_PATH=${MODEL_PATH:-}
+    devices:
+      - ${SERIAL_DEV:-/dev/ttyACM0}:${SERIAL_DEV:-/dev/ttyACM0}
+    depends_on:
+      - mqtt
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/healthz"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    ports:
+      - "8000:8000"

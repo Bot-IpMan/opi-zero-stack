@@ -1,0 +1,26 @@
+mqtt:
+  host: mqtt
+  port: 1883
+  topic_prefix: greenhouse
+
+pc_api:
+  host: 0.0.0.0
+  port: 8080
+
+opi:
+  host: opi-zero
+  port: 8000
+
+camera:
+  device: ${CAMERA_DEVICE:-/dev/video0}
+  width: 640
+  height: 480
+  fps: 15
+
+rag:
+  vector_db_path: ${VECTOR_DB_PATH:-./data/vector_db}
+  knowledge_path: ${KNOWLEDGE_PATH:-./knowledge}
+
+llm:
+  model: ${OLLAMA_MODEL:-llama3.2:3b}
+  endpoint: ${OLLAMA_BASE_URL:-http://localhost:11434}

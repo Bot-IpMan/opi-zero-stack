@@ -1,0 +1,34 @@
+version: "3.9"
+services:
+  mqtt:
+    image: eclipse-mosquitto:2
+    restart: unless-stopped
+    ports:
+      - "1883:1883"
+    volumes:
+      - ./mosquitto:/mosquitto
+    healthcheck:
+      test: ["CMD", "mosquitto_sub", "-h", "localhost", "-t", "healthcheck", "-C", "1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  pc-llm:
+    build: ./pc-llm-service
+    environment:
+      - OLLAMA_MODEL=${OLLAMA_MODEL:-llama3.2:3b}
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      - CAMERA_DEVICE=${CAMERA_DEVICE:-/dev/video0}
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./pc-llm-service/config.yaml:/service/config.yaml:ro
+      - ./pc-llm-service/knowledge:/service/knowledge:ro
+    depends_on:
+      - mqtt
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/system_status"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
