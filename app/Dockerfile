@@ -25,7 +25,10 @@ COPY requirements.txt .
 RUN pip install --only-binary=:all: -r requirements.txt
 
 # 4) Код і мінімальна FP32-модель TFLite (TFL3)
-COPY main.py model.tflite ./
+#    Копіюємо всі внутрішні модулі, щоб уникнути помилки ModuleNotFoundError
+COPY main.py model.tflite pc_client.py gpio_config.yaml ./
+COPY actuators ./actuators
+COPY sensors ./sensors
 
 EXPOSE 8000
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]
