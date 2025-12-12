@@ -2,6 +2,8 @@ import logging
 from typing import Any, Dict
 
 import cv2
+import httpx
+import numpy as np
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +34,19 @@ def analyze_frame(frame) -> Dict[str, Any]:
 
 def capture_single(device: str = "/dev/video0"):
     """Return a single frame or raise CameraError."""
+
+    if device.startswith("http://") or device.startswith("https://"):
+        try:
+            resp = httpx.get(device, timeout=5)
+            resp.raise_for_status()
+        except Exception as exc:
+            logger.warning("Не вдалося завантажити кадр з %s: %s", device, exc)
+            raise CameraError(f"camera_unavailable:{device}") from exc
+
+        frame = cv2.imdecode(np.frombuffer(resp.content, dtype=np.uint8), cv2.IMREAD_COLOR)
+        if frame is None:
+            raise CameraError("empty_frame")
+        return frame
 
     cap = cv2.VideoCapture(device)
     if not cap.isOpened():

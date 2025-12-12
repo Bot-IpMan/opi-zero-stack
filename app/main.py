@@ -5,6 +5,7 @@ import asyncio
 import json
 import logging
 import os
+import subprocess
 import time
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
@@ -12,7 +13,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import numpy as np
 import paho.mqtt.client as mqtt
 import serial
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Response
 from pydantic import BaseModel
 
 from actuators import ActuatorManager
@@ -24,6 +25,9 @@ logger = logging.getLogger(__name__)
 
 MODEL_PATH = os.getenv("MODEL_PATH", "")
 SERIAL_DEV = os.getenv("SERIAL_DEV", "/dev/ttyACM0")
+CAMERA_DEVICE = os.getenv("CAMERA_DEVICE", "/dev/video0")
+CAMERA_WIDTH = int(os.getenv("CAMERA_WIDTH", "640"))
+CAMERA_HEIGHT = int(os.getenv("CAMERA_HEIGHT", "480"))
 MQTT_HOST = os.getenv("MQTT_HOST", "mqtt")
 MQTT_PORT = int(os.getenv("MQTT_PORT", 1883))
 PC_HOST = os.getenv("PC_HOST", "pc")
@@ -194,10 +198,57 @@ async def emergency_stop():
     return {"status": "stopped"}
 
 
+def capture_snapshot() -> bytes:
+    """Захопити одиночний кадр з локальної камери через ffmpeg."""
+
+    cmd = [
+        "ffmpeg",
+        "-f",
+        "v4l2",
+        "-video_size",
+        f"{CAMERA_WIDTH}x{CAMERA_HEIGHT}",
+        "-i",
+        CAMERA_DEVICE,
+        "-vframes",
+        "1",
+        "-f",
+        "image2pipe",
+        "-vcodec",
+        "mjpeg",
+        "-",
+    ]
+
+    try:
+        result = subprocess.run(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+            timeout=8,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise HTTPException(status_code=504, detail="camera_timeout") from exc
+
+    if result.returncode != 0 or not result.stdout:
+        logger.error(
+            "ffmpeg camera error: rc=%s, stderr=%s", result.returncode, result.stderr.decode()
+        )
+        raise HTTPException(status_code=503, detail="camera_unavailable")
+
+    return result.stdout
+
+
+@app.get("/camera/snapshot")
+async def camera_snapshot():
+    frame = capture_snapshot()
+    return Response(content=frame, media_type="image/jpeg")
+
+
 @app.get("/healthz")
 async def healthz():
     return {
         "serial": ctx.serial_port.is_open,
+        "camera_device": CAMERA_DEVICE,
         "mqtt": ctx.mqtt.is_connected(),
         "emergency": ctx.emergency,
         "cache_size": len(ctx.command_cache),
