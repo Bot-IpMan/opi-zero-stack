@@ -1,0 +1,56 @@
+groups:
+  - name: greenhouse.alerts
+    rules:
+      - alert: GreenhouseOverheating
+        expr: greenhouse_temperature_celsius > 30
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Температура оранжереї перевищує 30°C"
+          description: "Температура {{ $value }}°C на job {{ $labels.job }}. Перевірте охолодження."
+
+      - alert: GreenhouseLowHumidity
+        expr: greenhouse_humidity_percent < 40
+        for: 3m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Низька вологість у теплиці"
+          description: "Вологість {{ $value }}% на job {{ $labels.job }}. Перевірте систему зрошення."
+
+      - alert: DeviceOffline
+        expr: device_status == 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Пристрій {{ $labels.device }} не працює"
+          description: "Статус пристрою {{ $labels.device }} = 0. Перевірте з’єднання та живлення."
+
+      - alert: SensorFailure
+        expr: sensor_state == 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Датчик {{ $labels.sensor }} недоступний"
+          description: "Датчик {{ $labels.sensor }} повертає нульовий стан. Перевірте датчик або з’єднання."
+
+      - alert: RoboArmErrorRate
+        expr: increase(roboarm_command_errors_total[5m]) > 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Помилки роборуки"
+          description: "Виявлено помилки команди роборуки за останні 5 хвилин."
+
+      - alert: FrequentLLMWarnings
+        expr: increase(llm_decision_warnings_total[10m]) > 0
+        for: 1m
+        labels:
+          severity: info
+        annotations:
+          summary: "LLM створює попередження"
+          description: "Потрібен огляд логів рішень LLM: виявлено попередження за останні 10 хвилин."
