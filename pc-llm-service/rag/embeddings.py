@@ -1,4 +1,5 @@
 import logging
+import os
 from typing import Iterable, List
 
 from chromadb.utils import embedding_functions
@@ -37,6 +38,17 @@ def create_embedding_function(
     constrained hosts. Falls back to the original SentenceTransformer-based
     embeddings if FastEmbed is unavailable.
     """
+
+    if ":" in model_name:
+        base_url = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
+        logger.info(
+            "Using Ollama embeddings backend: model=%s, url=%s",
+            model_name,
+            base_url,
+        )
+        return embedding_functions.OllamaEmbeddingFunction(
+            model_name=model_name, url=base_url
+        )
 
     if TextEmbedding:
         try:
