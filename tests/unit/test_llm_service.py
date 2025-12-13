@@ -68,3 +68,35 @@ async def test_summarize_wraps_prompt(monkeypatch):
     summary = await service.summarize("data")
     assert summary == "summary"
     assert "Стисло підсумуй" in captured_payload.get("prompt", "")
+
+
+@pytest.mark.asyncio
+async def test_chat_appends_context(monkeypatch):
+    captured_payload = {}
+
+    async def handler(request: httpx.Request):
+        captured_payload.update(request.json())
+        return httpx.Response(200, json={"response": "ctx"})
+
+    transport = httpx.MockTransport(handler)
+
+    class WrapperClient:
+        def __init__(self):
+            self.client = httpx.AsyncClient(transport=transport)
+
+        async def __aenter__(self):
+            return self.client
+
+        async def __aexit__(self, exc_type, exc, tb):
+            await self.client.aclose()
+
+    monkeypatch.setattr(httpx, "AsyncClient", lambda timeout=60: WrapperClient())
+    service = llm_service.LLMService(base_url="http://llm", model="test-model")
+
+    await service.chat("base prompt", context=["note one", "note two"])
+
+    prompt = captured_payload.get("prompt", "")
+    assert "Контекст:" in prompt
+    assert "- note one" in prompt
+    assert "- note two" in prompt
+    assert "context" not in captured_payload

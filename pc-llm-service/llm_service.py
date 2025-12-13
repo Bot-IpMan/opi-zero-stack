@@ -16,11 +16,9 @@ class LLMService:
     async def chat(self, prompt: str, context: Optional[List[str]] = None) -> str:
         payload = {
             "model": self.model,
-            "prompt": prompt,
+            "prompt": self._build_prompt(prompt, context),
             "options": {"temperature": 0.2},
         }
-        if context:
-            payload["context"] = "\n".join(context)
 
         url = f"{self.base_url}/api/generate"
         try:
@@ -39,3 +37,12 @@ class LLMService:
             f"Дані:\n{text}"
         )
         return await self.chat(prompt)
+
+    def _build_prompt(self, prompt: str, context: Optional[List[str]] = None) -> str:
+        """Додати контекст до підказки у вигляді маркованого списку."""
+
+        if not context:
+            return prompt
+
+        context_block = "\n- ".join(context)
+        return f"{prompt}\n\nКонтекст:\n- {context_block}"
