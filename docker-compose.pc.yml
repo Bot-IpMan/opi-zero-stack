@@ -1,5 +1,3 @@
-version: "3.9"
-
 # Compose-файл для ПК: містить LLM сервіс та (опційно) локальний брокер MQTT.
 services:
   mqtt:
@@ -60,6 +58,11 @@ services:
       options:
         max-size: "5m"
         max-file: "2"
+    # Uvicorn/asyncio потребує виклику socketpair(), який блокується стандартним
+    # seccomp-профілем Docker у деяких середовищах (наприклад, z-diot)।
+    # Відкриваємо seccomp, щоб процес зміг створити петлю подій без PermissionError.
+    security_opt:
+      - seccomp:unconfined
     networks:
       - robotarm
 
