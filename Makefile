@@ -37,7 +37,6 @@ pc-up:
 		echo "${BLUE}[PC] Камера виявлена ($$CAM_DEV). Проброшуємо пристрій...${RESET}"; \
 		docker compose -f docker-compose.pc.yml -f docker-compose.pc.camera.yml up -d; \
 	else \
-		echo "${YELLOW}[PC] Камеру не знайдено за $$CAM_DEV, запускаємо без неї.${RESET}"; \
 		docker compose -f docker-compose.pc.yml up -d; \
 	fi
 
