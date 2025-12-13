@@ -41,6 +41,9 @@ services:
       SHARED_PATH: /service/shared
     ports:
       - "8080:8080"
+    extra_hosts:
+      # Додаємо доступ до Ollama, яка вже запущена окремим контейнером на хості.
+      - "host.docker.internal:host-gateway"
     volumes:
       - ./pc-llm-service/config.yaml:/service/config.yaml:ro
       - ./pc-llm-service/knowledge:/service/knowledge:ro
