@@ -33,7 +33,7 @@ curl http://localhost:8080/system_status
 ```bash
 # 1. Підготуйте змінні середовища
 cp .env.example app/.env
-sed -i 's/MQTT_HOST=.*/MQTT_HOST=192.168.1.100/' app/.env  # IP брокера/ПК
+sed -i 's/MQTT_HOST=.*/MQTT_HOST=192.168.1.152/' app/.env  # IP брокера/ПК
 
 # 2. Запустіть застосунок і MQTT клієнт (host network для мінімальної затримки)
 docker compose -f docker-compose.orangepi.yml up -d app mqttc
