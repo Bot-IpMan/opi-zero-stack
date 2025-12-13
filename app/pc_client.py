@@ -24,6 +24,12 @@ class PCClient:
                 url,
                 exc,
             )
+        except httpx.HTTPError as exc:
+            logger.warning(
+                "ПК не прийняв статус %s: %s. Сервіс може бути недоступним.",
+                url,
+                exc,
+            )
         except Exception:
             logger.exception("Не вдалося відправити статус на ПК")
 
@@ -39,6 +45,13 @@ class PCClient:
         except httpx.ConnectError as exc:
             logger.warning(
                 "ПК недоступний %s: %s. Повертаю резервне рішення.",
+                url,
+                exc,
+            )
+            return {"error": "pc_unreachable"}
+        except httpx.HTTPError as exc:
+            logger.warning(
+                "ПК повернув помилку під час запиту рішення %s: %s.",
                 url,
                 exc,
             )
