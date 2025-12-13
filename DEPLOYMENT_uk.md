@@ -28,6 +28,7 @@ curl http://localhost:8080/system_status
 ```
 - Сервіс монтує `pc-llm-service/config.yaml`, `knowledge/` і `data/` у контейнер.
 - Камера проброшується автоматично через `CAMERA_DEVICE` (за замовчуванням `/dev/video0`), але `make pc-up` автоматично запускає сервіс без пробросу, якщо пристрій відсутній.
+- Для стабільної роботи на CPU без AVX задайте легкий ембединг через `EMBEDDING_MODEL` (за замовчуванням `BAAI/bge-small-en-v1.5`, FastEmbed) — це усуває падіння `pc-llm-service` з кодом 136.
 
 ## 3) Розгортання на Orange Pi Zero
 ```bash

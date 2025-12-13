@@ -3,13 +3,19 @@ import logging
 import pathlib
 from typing import Dict, List
 
+from .embeddings import DEFAULT_EMBEDDING_MODEL
 from .vector_store import VectorStore
 
 logger = logging.getLogger(__name__)
 
 
 class Retriever:
-    def __init__(self, kb_path: str, vector_path: str, model_name: str = "all-MiniLM-L6-v2"):
+    def __init__(
+        self,
+        kb_path: str,
+        vector_path: str,
+        model_name: str = DEFAULT_EMBEDDING_MODEL,
+    ):
         self.kb_path = pathlib.Path(kb_path)
         self.vector_store = VectorStore(vector_path, model_name=model_name)
         self.documents: List[Dict] = []
