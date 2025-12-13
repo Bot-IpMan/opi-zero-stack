@@ -49,6 +49,11 @@ class DecisionRequest(BaseModel):
     last_actions: Optional[list] = Field(None, description="Recent actuator actions")
 
 
+class ManualOverrideRequest(BaseModel):
+    action: str = Field(..., description="Назва ручної дії для виконання")
+    payload: dict = Field(default_factory=dict, description="Додаткові параметри для дії")
+
+
 class SystemStatus(BaseModel):
     camera_ok: bool
     mqtt_connected: bool
@@ -113,6 +118,18 @@ async def make_decision(payload: DecisionRequest):
         return {"decision": message}
     except Exception as exc:
         logger.exception("Помилка make_decision")
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.post("/override_decision")
+async def override_decision(payload: ManualOverrideRequest):
+    ctx = get_ctx()
+    override_message = {"action": payload.action, "payload": payload.payload, "source": "human"}
+    try:
+        ctx.mqtt.publish_state("manual_overrides", override_message)
+        return {"status": "ok", "override": override_message}
+    except Exception as exc:
+        logger.exception("Помилка override_decision")
         raise HTTPException(status_code=500, detail=str(exc))
 
 
