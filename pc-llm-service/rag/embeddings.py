@@ -36,9 +36,17 @@ def create_embedding_function(model_name: str = "all-MiniLM-L6-v2") -> embedding
             if isinstance(supported_models, Iterable) and not isinstance(
                 supported_models, (str, bytes)
             ):
+                normalized_models = []
+                for model in supported_models:
+                    if isinstance(model, dict):
+                        normalized_models.append(model.get("name"))
+                    else:
+                        normalized_models.append(model)
+
                 supported_models = {
-                    model.get("name", model) if hasattr(model, "get") else model
-                    for model in supported_models
+                    candidate
+                    for candidate in normalized_models
+                    if isinstance(candidate, (str, bytes))
                 }
             else:  # pragma: no cover - defensive guard for unexpected return types
                 supported_models = set()
