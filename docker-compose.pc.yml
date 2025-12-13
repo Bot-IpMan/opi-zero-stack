@@ -53,16 +53,19 @@ services:
       timeout: 10s
       retries: 5
       start_period: 15s
-    logging:
-      driver: local
-      options:
-        max-size: "5m"
-        max-file: "2"
-    # Uvicorn/asyncio потребує виклику socketpair(), який блокується стандартним
-    # seccomp-профілем Docker у деяких середовищах (наприклад, z-diot)।
-    # Відкриваємо seccomp, щоб процес зміг створити петлю подій без PermissionError.
-    security_opt:
-      - seccomp=unconfined
+      logging:
+        driver: local
+        options:
+          max-size: "5m"
+          max-file: "2"
+      # Для швидкої перевірки проблем із правами запускаємо контейнер у привілейованому режимі.
+      # Якщо це допоможе, дайте системі тільки необхідні capabilities як більш безпечну альтернативу.
+      privileged: true
+      # Uvicorn/asyncio потребує виклику socketpair(), який блокується стандартним
+      # seccomp-профілем Docker у деяких середовищах (наприклад, z-diot)।
+      # Відкриваємо seccomp, щоб процес зміг створити петлю подій без PermissionError.
+      security_opt:
+        - seccomp=unconfined
     networks:
       - robotarm
 
