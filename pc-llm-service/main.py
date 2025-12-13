@@ -4,11 +4,11 @@ import os
 import re
 from functools import lru_cache
 from pathlib import Path
-from typing import Optional
+from typing import Any, Dict, Optional
 
 import uvicorn
 import yaml
-from fastapi import FastAPI, HTTPException
+from fastapi import Body, FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
 from llm_service import LLMService
@@ -52,6 +52,11 @@ class DecisionRequest(BaseModel):
 class SystemStatus(BaseModel):
     camera_ok: bool
     mqtt_connected: bool
+
+
+class RobotStatus(BaseModel):
+    sensors: Dict[str, Any]
+    actuators: Dict[str, Any]
 
 
 class AppContext:
@@ -111,10 +116,12 @@ async def make_decision(payload: DecisionRequest):
         raise HTTPException(status_code=500, detail=str(exc))
 
 
-@app.get("/system_status")
-async def system_status():
+@app.api_route("/system_status", methods=["GET", "POST"])
+async def system_status(payload: Optional[RobotStatus] = Body(default=None)):
     ctx = get_ctx()
     mqtt_ok = ctx.mqtt.client.is_connected()
+    if payload:
+        logger.debug("Отримано статус від робота: %s", payload.model_dump())
     try:
         capture_single(ctx.cfg["camera"].get("device", "http://opi-zero:8000/camera/snapshot"))
         camera_ok = True
