@@ -13,8 +13,14 @@ except Exception:  # pragma: no cover - fallback handled in code flow.
 logger = logging.getLogger(__name__)
 
 
+# Default embedding model chosen for compatibility with the FastEmbed backend.
+# Using FastEmbed keeps the service away from PyTorch wheels that may crash on
+# CPUs without AVX/AVX2 support (those typically exit with code 136).
+DEFAULT_EMBEDDING_MODEL = "BAAI/bge-small-en-v1.5"
+
+
 class Embedder:
-    def __init__(self, model_name: str = "all-MiniLM-L6-v2"):
+    def __init__(self, model_name: str = DEFAULT_EMBEDDING_MODEL):
         self.model_name = model_name
         self.model = SentenceTransformer(model_name)
 
@@ -22,7 +28,9 @@ class Embedder:
         return self.model.encode(list(texts), convert_to_numpy=True).tolist()
 
 
-def create_embedding_function(model_name: str = "all-MiniLM-L6-v2") -> embedding_functions.EmbeddingFunction:
+def create_embedding_function(
+    model_name: str = DEFAULT_EMBEDDING_MODEL,
+) -> embedding_functions.EmbeddingFunction:
     """Factory for a Chroma-ready embedding function.
 
     Prefers the lightweight FastEmbed backend to avoid PyTorch crashes on

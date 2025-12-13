@@ -16,7 +16,7 @@ from pydantic import BaseModel, Field
 
 from llm_service import LLMService
 from mqtt_client import MQTTClient
-from rag.retriever import Retriever
+from rag import DEFAULT_EMBEDDING_MODEL, Retriever
 from rag_llm import RAGPipeline
 from vision_processor import CameraError, analyze_frame, capture_single
 
@@ -98,7 +98,11 @@ class AppContext:
             llm_cfg.get("endpoint", "http://localhost:11434"),
             llm_cfg.get("model", "qwen2.5:7b"),
         )
-        self.retriever = Retriever(raw_cfg["rag"]["knowledge_path"], raw_cfg["rag"]["vector_db_path"])
+        self.retriever = Retriever(
+            raw_cfg["rag"]["knowledge_path"],
+            raw_cfg["rag"]["vector_db_path"],
+            raw_cfg["rag"].get("embedding_model", DEFAULT_EMBEDDING_MODEL),
+        )
         self.rag = RAGPipeline(self.retriever, self.llm)
         mqtt_cfg = raw_cfg.get("mqtt", {})
         self.mqtt = MQTTClient(
