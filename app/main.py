@@ -32,6 +32,10 @@ MQTT_HOST = os.getenv("MQTT_HOST", "mqtt")
 MQTT_PORT = int(os.getenv("MQTT_PORT", 1883))
 PC_HOST = os.getenv("PC_HOST", "pc")
 PC_PORT = int(os.getenv("PC_PORT", 8080))
+APPROVAL_TIMEOUT = int(os.getenv("APPROVAL_TIMEOUT", "20"))
+
+DECISIONS_TOPIC = "greenhouse/decisions"
+APPROVALS_TOPIC = "greenhouse/approvals"
 
 PINS = {
     "light": int(os.getenv("RELAY_LIGHT_PIN", "7")),
@@ -61,8 +65,11 @@ class ExecutorContext:
         self.actuators = ActuatorManager(PINS)
         self.serial_lock = asyncio.Lock()
         self.serial_port = serial.Serial(SERIAL_DEV, baudrate=115200, timeout=1)
+        self.loop = asyncio.get_event_loop()
         self.mqtt = mqtt.Client()
         self.mqtt.reconnect_delay_set(min_delay=1, max_delay=60)
+        self.mqtt.on_connect = self._on_connect
+        self.mqtt.on_message = self._on_message
         try:
             self.mqtt.connect(MQTT_HOST, MQTT_PORT, 60)
         except OSError as exc:
@@ -79,6 +86,8 @@ class ExecutorContext:
         self.emergency = False
         self.last_schedule_trigger: Dict[str, str] = {}
         self.irrigation_schedule: List[Tuple[str, int]] = self._load_schedule(IRRIGATION_SCHEDULE)
+        self.pending_decisions: Dict[str, Dict[str, Any]] = {}
+        self.approval_timeout = APPROVAL_TIMEOUT
         logger.info(
             "Executor готовий. PC=%s:%s MQTT=%s:%s, розклад=%s",
             PC_HOST,
@@ -104,6 +113,114 @@ class ExecutorContext:
         except Exception:
             logger.warning("Не вдалося розпарсити розклад поливу")
             return []
+
+    def _on_connect(self, client: mqtt.Client, userdata: Any, flags: Any, rc: int):
+        if rc == 0:
+            client.subscribe(DECISIONS_TOPIC)
+            client.subscribe(APPROVALS_TOPIC)
+            logger.info("Підписано на %s та %s", DECISIONS_TOPIC, APPROVALS_TOPIC)
+        else:
+            logger.warning("MQTT rc=%s при підключенні", rc)
+
+    def _on_message(self, client: mqtt.Client, userdata: Any, msg: mqtt.MQTTMessage):
+        if not self.loop.is_running():
+            logger.debug("MQTT подія до запуску подієвого циклу, пропускаю")
+            return
+
+        try:
+            payload = json.loads(msg.payload.decode())
+        except Exception:
+            logger.warning("Неочікуваний MQTT payload у темі %s", msg.topic)
+            return
+
+        if msg.topic == DECISIONS_TOPIC:
+            asyncio.run_coroutine_threadsafe(self._handle_decision(payload), self.loop)
+        elif msg.topic == APPROVALS_TOPIC:
+            decision_id = payload.get("id")
+            if not decision_id:
+                return
+            asyncio.run_coroutine_threadsafe(
+                self._handle_approval(decision_id, payload), self.loop
+            )
+
+    async def _handle_decision(self, payload: Dict[str, Any]):
+        decision_id = payload.get("id") or f"auto-{int(time.time() * 1000)}"
+        approval_future = self.loop.create_future()
+        record = {
+            "id": decision_id,
+            "payload": payload,
+            "received_at": time.time(),
+            "future": approval_future,
+        }
+        self.pending_decisions[decision_id] = record
+        logger.info("Отримано рішення %s, очікую підтвердження", decision_id)
+        asyncio.create_task(self._await_approval(record))
+
+    async def _await_approval(self, record: Dict[str, Any]):
+        try:
+            approved = await asyncio.wait_for(record["future"], timeout=self.approval_timeout)
+        except asyncio.TimeoutError:
+            logger.warning("Підтвердження для рішення %s не отримано вчасно", record["id"])
+            self.pending_decisions.pop(record["id"], None)
+            return
+        except Exception:
+            logger.exception("Помилка очікування підтвердження рішення %s", record["id"])
+            self.pending_decisions.pop(record["id"], None)
+            return
+
+        self.pending_decisions.pop(record["id"], None)
+        if approved:
+            await self._execute_decision(record["payload"])
+        else:
+            logger.info("Рішення %s відхилено оператором", record["id"])
+
+    async def _handle_approval(self, decision_id: str, payload: Dict[str, Any]):
+        approved = payload.get("approved")
+        if approved is None:
+            status = payload.get("status")
+            approved = status == "approved" if status in {"approved", "rejected"} else None
+
+        record = self.pending_decisions.get(decision_id)
+        if record is None or approved is None:
+            logger.debug("Немає відкладеного рішення %s для підтвердження", decision_id)
+            return
+
+        future: asyncio.Future = record["future"]
+        if not future.done():
+            future.set_result(bool(approved))
+
+    async def _execute_decision(self, payload: Dict[str, Any]):
+        if self.emergency:
+            logger.warning("Пропущено виконання рішення: аварійний режим")
+            return
+
+        action = payload.get("action") or payload.get("cmd") or payload.get("name")
+        params = payload.get("payload") if isinstance(payload.get("payload"), dict) else {}
+        params = params or {}
+        logger.info("Виконання затвердженого рішення %s з дією %s", payload.get("id"), action)
+
+        if action in {"light", "set_light"}:
+            state = params.get("on", payload.get("on"))
+            if state is not None:
+                self.cache_command("light", {"on": bool(state), "source": "mqtt_decision"})
+                self.actuators.set_light(bool(state))
+        elif action in {"fan", "set_fan"}:
+            state = params.get("on", payload.get("on"))
+            if state is not None:
+                self.cache_command("fan", {"on": bool(state), "source": "mqtt_decision"})
+                self.actuators.set_fan(bool(state))
+        elif action in {"pump", "set_pump"}:
+            duration = params.get("duration") or payload.get("duration")
+            state = params.get("on", payload.get("on"))
+            if duration:
+                await self._run_pump_safely(int(duration), reason="approved_decision")
+            elif state is not None:
+                self.cache_command("pump", {"on": bool(state), "source": "mqtt_decision"})
+                self.actuators.set_pump(bool(state))
+        elif action == "emergency_stop":
+            await self.emergency_stop()
+        else:
+            logger.info("Невідома дія рішення %s: %s", payload.get("id"), action)
 
     async def safe_serial_write(self, payload: dict):
         async with self.serial_lock:
@@ -166,6 +283,7 @@ ctx = ExecutorContext()
 
 @app.on_event("startup")
 async def startup():
+    ctx.loop = asyncio.get_running_loop()
     asyncio.create_task(ctx.scheduler_loop())
 
 
