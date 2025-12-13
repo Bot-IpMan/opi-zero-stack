@@ -58,6 +58,16 @@ LLM_DECISION_WARNINGS_TOTAL = Counter(
     "llm_decision_warnings_total",
     "LLM decision log warnings",
 )
+LLM_MANUAL_OVERRIDES_TOTAL = Counter(
+    "llm_manual_overrides_total",
+    "Total number of manual overrides sent to the greenhouse",
+    labelnames=["action", "source"],
+)
+LAST_MANUAL_OVERRIDE_TS = Gauge(
+    "llm_last_manual_override_timestamp_seconds",
+    "Unix timestamp of the last manual override decision",
+    labelnames=["action", "source", "payload"],
+)
 
 # Error and warning counters
 GREENHOUSE_ERRORS_TOTAL = Counter(
@@ -151,6 +161,27 @@ class GreenhouseMetrics:
                 LLM_DECISION_WARNINGS_TOTAL.inc()
                 GREENHOUSE_WARNINGS_TOTAL.labels(component="llm").inc()
 
+    def record_manual_override(self) -> None:
+        with self._lock:
+            action = random.choice([
+                "force_ventilation",
+                "stop_irrigation",
+                "boost_lighting",
+                "reset_alarm",
+            ])
+            payload = random.choice([
+                {"duration": 300},
+                {"level": 0.7},
+                {"intensity": "high"},
+                {"note": "manual inspection"},
+            ])
+            LLM_MANUAL_OVERRIDES_TOTAL.labels(action=action, source="human").inc()
+            LAST_MANUAL_OVERRIDE_TS.labels(
+                action=action,
+                source="human",
+                payload=str(payload),
+            ).set_to_current_time()
+
     def run(self, interval: float = 5.0) -> None:
         while True:
             self.update_environment()
@@ -158,6 +189,8 @@ class GreenhouseMetrics:
             self.update_devices()
             self.record_roboarm_activity()
             self.record_llm_decision()
+            if random.random() > 0.9:
+                self.record_manual_override()
             time.sleep(interval)
 
 
