@@ -13,9 +13,9 @@ services:
       CAMERA_DEVICE: ${CAMERA_DEVICE:-/dev/video0}
       CAMERA_WIDTH: ${CAMERA_WIDTH:-640}
       CAMERA_HEIGHT: ${CAMERA_HEIGHT:-480}
-      MQTT_HOST: ${MQTT_HOST:-192.168.1.100}  # IP/хост ПК з брокером MQTT.
+      MQTT_HOST: ${MQTT_HOST:-192.168.1.152}  # IP/хост ПК з брокером MQTT.
       MQTT_PORT: ${MQTT_PORT:-1883}
-      PC_HOST: ${PC_HOST:-192.168.1.100}
+      PC_HOST: ${PC_HOST:-192.168.1.152}
       PC_PORT: ${PC_PORT:-8080}
       MODEL_PATH: ${MODEL_PATH:-/app/model.tflite}
       DUMMY_MODEL: ${DUMMY_MODEL:-1}
@@ -50,7 +50,7 @@ services:
     container_name: mqttc
     network_mode: host  # Використовує той самий IP, що й хост, для підключення до брокера на ПК.
     environment:
-      MQTT_HOST: ${MQTT_HOST:-192.168.1.100}
+      MQTT_HOST: ${MQTT_HOST:-192.168.1.152}
       MQTT_PORT: ${MQTT_PORT:-1883}
     entrypoint:
       - "/bin/sh"
@@ -61,7 +61,7 @@ services:
         tail -f /dev/null
     restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "mosquitto_pub -h ${MQTT_HOST:-192.168.1.100} -p ${MQTT_PORT:-1883} -t healthcheck -m ok"]
+      test: ["CMD-SHELL", "mosquitto_pub -h ${MQTT_HOST:-192.168.1.152} -p ${MQTT_PORT:-1883} -t healthcheck -m ok"]
       interval: 60s
       timeout: 10s
       retries: 3

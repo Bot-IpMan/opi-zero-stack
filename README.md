@@ -153,7 +153,7 @@ LIGHT_CYCLE=16h_on_8h_off
 ```env
 LLM_PROVIDER=openai
 OPENAI_API_KEY=sk-...
-MQTT_HOST=192.168.1.50
+MQTT_HOST=192.168.1.152
 MQTT_PORT=1883
 PLAN_HORIZON_MIN=120
 ```
@@ -178,8 +178,8 @@ uvicorn api:app --host 0.0.0.0 --port 11434
 3) **Перевірити зв'язок**
 ```bash
 # На Orange Pi або ПК
-mosquitto_sub -h 192.168.1.50 -t 'greenhouse/events' -v &
-mosquitto_pub -h 192.168.1.50 -t 'greenhouse/events' -m '{"ping":true}'
+mosquitto_sub -h 192.168.1.152 -t 'greenhouse/events' -v &
+mosquitto_pub -h 192.168.1.152 -t 'greenhouse/events' -m '{"ping":true}'
 ```
 
 4) **Старт робочого циклу**
@@ -193,7 +193,7 @@ mosquitto_pub -h 192.168.1.50 -t 'greenhouse/events' -m '{"ping":true}'
 
 - Перевірка здоров'я Orange Pi API:
 ```bash
-curl http://192.168.1.50:8000/healthz
+curl http://192.168.1.220:8000/healthz
 ```
 
 - Журнали сервісів Docker на Orange Pi:
@@ -208,7 +208,7 @@ sudo screen /dev/ttyACM0 115200
 
 - Тест команд до Arduino через MQTT:
 ```bash
-mosquitto_pub -h 192.168.1.50 -t 'greenhouse/cmd/actuators' \
+mosquitto_pub -h 192.168.1.152 -t 'greenhouse/cmd/actuators' \
   -m '{"pump_main":1, "fan_left":128, "led_white":200}'
 ```
 
