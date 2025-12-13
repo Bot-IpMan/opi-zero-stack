@@ -12,7 +12,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /service
 COPY requirements.txt ./
-RUN pip install --no-cache-dir -r requirements.txt
+# Install CPU-optimised wheels to minimise download size and avoid exhausting
+# limited build-space on hosts with small Docker storage.
+RUN pip install --no-cache-dir --extra-index-url https://download.pytorch.org/whl/cpu -r requirements.txt
 
 COPY . .
 EXPOSE 8080
