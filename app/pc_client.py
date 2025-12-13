@@ -18,6 +18,12 @@ class PCClient:
         try:
             async with httpx.AsyncClient(timeout=10) as client:
                 await client.post(url, json=payload)
+        except httpx.ConnectError as exc:
+            logger.warning(
+                "Не вдалося підключитися до ПК %s: %s. Перевірте PC_HOST/PC_PORT.",
+                url,
+                exc,
+            )
         except Exception:
             logger.exception("Не вдалося відправити статус на ПК")
 
@@ -30,6 +36,13 @@ class PCClient:
                 resp = await client.post(url, json={"sensors": sensors})
                 resp.raise_for_status()
                 return resp.json()
+        except httpx.ConnectError as exc:
+            logger.warning(
+                "ПК недоступний %s: %s. Повертаю резервне рішення.",
+                url,
+                exc,
+            )
+            return {"error": "pc_unreachable"}
         except Exception:
             logger.exception("Помилка запиту рішення на ПК")
             return {"error": "pc_unreachable"}
