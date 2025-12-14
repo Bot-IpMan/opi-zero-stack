@@ -7,12 +7,12 @@ YELLOW=\033[1;33m
 GREEN=\033[1;32m
 RESET=\033[0m
 
-.PHONY: help pc-build pc-up pc-logs pc-shell opi-build opi-up opi-logs opi-shell health-all monitor-mqtt test-connection deploy-pc deploy-opi
+.PHONY: help pc-build pc-up pc-logs pc-shell opi-build opi-up opi-logs opi-shell health-all monitor-mqtt test-connection deploy-pc deploy-opi start logs monitor test-camera fix-camera train dashboard
 
 help:
-	@echo "${BOLD}Доступні команди:${RESET}"
-	@echo "  ${BLUE}make pc-build${RESET}        - Збудувати LLM сервіс для ПК"
-	@echo "  ${BLUE}make pc-up${RESET}           - Запустити сервіси ПК у фоні"
+        @echo "${BOLD}Доступні команди:${RESET}"
+        @echo "  ${BLUE}make pc-build${RESET}        - Збудувати LLM сервіс для ПК"
+        @echo "  ${BLUE}make pc-up${RESET}           - Запустити сервіси ПК у фоні"
 	@echo "  ${BLUE}make pc-logs${RESET}         - Потокові логи ПК сервісів"
 	@echo "  ${BLUE}make pc-shell${RESET}        - Відкрити shell у контейнері ПК"
 	@echo "  ${YELLOW}make opi-build${RESET}       - Збудувати сервіс Orange Pi Zero"
@@ -20,8 +20,15 @@ help:
 	@echo "  ${YELLOW}make opi-logs${RESET}        - Потокові логи сервісів Orange Pi"
 	@echo "  ${YELLOW}make opi-shell${RESET}       - Відкрити shell у контейнері Orange Pi"
 	@echo "  ${GREEN}make health-all${RESET}      - Перевірка стану всіх сервісів"
-	@echo "  ${GREEN}make monitor-mqtt${RESET}    - Моніторинг топіку greenhouse/# через MQTT"
-	@echo "  ${GREEN}make test-connection${RESET} - Тест з'єднання між ПК та Orange Pi"
+        @echo "  ${GREEN}make monitor-mqtt${RESET}    - Моніторинг топіку greenhouse/# через MQTT"
+        @echo "  ${GREEN}make test-connection${RESET} - Тест з'єднання між ПК та Orange Pi"
+        @echo "  ${BLUE}make start${RESET}          - Запуск всіх сервісів у фоні"
+        @echo "  ${BLUE}make logs${RESET}           - Потокові логи всіх сервісів"
+        @echo "  ${GREEN}make monitor${RESET}        - Моніторинг топіків arm/# через MQTT"
+        @echo "  ${YELLOW}make test-camera${RESET}     - Зберегти знімок та показати налаштування камери"
+        @echo "  ${YELLOW}make fix-camera${RESET}      - Встановити експозицію, яскравість та gain"
+        @echo "  ${YELLOW}make train${RESET}           - Запустити навчання роборуки"
+        @echo "  ${GREEN}make dashboard${RESET}      - Запустити локальний dashboard на 8888"
 	@echo "  ${BLUE}make deploy-pc${RESET}        - Розгортання сервісів на ПК"
 	@echo "  ${YELLOW}make deploy-opi${RESET}       - Розгортання сервісів на Orange Pi"
 
@@ -72,13 +79,40 @@ health-all:
 	docker compose -f docker-compose.orangepi.yml ps
 
 monitor-mqtt:
-	@echo "${GREEN}[MQTT] Моніторинг greenhouse/#...${RESET}"
-	mosquitto_sub -h ${MQTT_HOST:-localhost} -t "greenhouse/#" -v
+        @echo "${GREEN}[MQTT] Моніторинг greenhouse/#...${RESET}"
+        mosquitto_sub -h ${MQTT_HOST:-localhost} -t "greenhouse/#" -v
 
 test-connection:
-	@echo "${GREEN}[NET] Тест з'єднання ПК <-> OPI...${RESET}"
-	curl -f http://localhost:8080/system_status || true
-	curl -f http://localhost:8000/healthz || true
+        @echo "${GREEN}[NET] Тест з'єднання ПК <-> OPI...${RESET}"
+        curl -f http://localhost:8080/system_status || true
+        curl -f http://localhost:8000/healthz || true
+
+# Загальні команди
+start:
+        docker compose up -d
+
+logs:
+        docker compose logs -f
+
+monitor:
+        docker compose exec mqtt mosquitto_sub -h localhost -t 'arm/#' -v
+
+test-camera:
+        curl http://localhost:8000/camera/snapshot -o test.jpg
+        curl http://localhost:8000/camera/settings | jq
+
+fix-camera:
+        curl -X POST http://localhost:8000/camera/settings \
+                -H "Content-Type: application/json" \
+                -d '{"exposure": 200, "brightness": 150, "gain": 80}'
+
+train:
+        curl -X POST http://localhost:8000/control/start \
+                -H "Content-Type: application/json" \
+                -d '{"task": "Навчитися рухати роборукою"}'
+
+dashboard:
+        cd monitoring && python3 -m http.server 8888
 
 # Розгортання
 deploy-pc: pc-build pc-up
