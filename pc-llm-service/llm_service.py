@@ -8,9 +8,10 @@ logger = logging.getLogger(__name__)
 class LLMService:
     """Простий клієнт до Ollama для чат-запитів із вбудованою підказкою."""
 
-    def __init__(self, base_url: str, model: str):
+    def __init__(self, base_url: str, model: str, client_factory=httpx.AsyncClient):
         self.base_url = base_url.rstrip("/")
         self.model = model
+        self.client_factory = client_factory
         logger.info("LLMService ініціалізовано із моделлю %s", model)
 
     async def chat(self, prompt: str, context: Optional[List[str]] = None) -> str:
@@ -22,7 +23,7 @@ class LLMService:
 
         url = f"{self.base_url}/api/generate"
         try:
-            async with httpx.AsyncClient(timeout=60) as client:
+            async with self.client_factory(timeout=60) as client:
                 response = await client.post(url, json=payload)
                 response.raise_for_status()
                 data = response.json()

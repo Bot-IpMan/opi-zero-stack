@@ -33,17 +33,20 @@ class DummyAsyncClient:
 
 
 @pytest.mark.asyncio
-async def test_chat_returns_response(monkeypatch):
-    service = llm_service.LLMService(base_url="http://llm", model="test-model")
+async def test_chat_returns_response():
     dummy_client = DummyAsyncClient({"response": "ok"})
-    monkeypatch.setattr(httpx, "AsyncClient", lambda timeout=60: dummy_client)
+    service = llm_service.LLMService(
+        base_url="http://llm",
+        model="test-model",
+        client_factory=lambda **_: dummy_client,
+    )
 
     result = await service.chat("hello")
     assert result == "ok"
 
 
 @pytest.mark.asyncio
-async def test_summarize_wraps_prompt(monkeypatch):
+async def test_summarize_wraps_prompt():
     captured_payload = {}
 
     async def handler(request: httpx.Request):
@@ -62,8 +65,11 @@ async def test_summarize_wraps_prompt(monkeypatch):
         async def __aexit__(self, exc_type, exc, tb):
             await self.client.aclose()
 
-    monkeypatch.setattr(httpx, "AsyncClient", lambda timeout=60: WrapperClient())
-    service = llm_service.LLMService(base_url="http://llm", model="test-model")
+    service = llm_service.LLMService(
+        base_url="http://llm",
+        model="test-model",
+        client_factory=lambda **_: WrapperClient(),
+    )
 
     summary = await service.summarize("data")
     assert summary == "summary"
@@ -71,7 +77,7 @@ async def test_summarize_wraps_prompt(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_chat_appends_context(monkeypatch):
+async def test_chat_appends_context():
     captured_payload = {}
 
     async def handler(request: httpx.Request):
@@ -90,8 +96,11 @@ async def test_chat_appends_context(monkeypatch):
         async def __aexit__(self, exc_type, exc, tb):
             await self.client.aclose()
 
-    monkeypatch.setattr(httpx, "AsyncClient", lambda timeout=60: WrapperClient())
-    service = llm_service.LLMService(base_url="http://llm", model="test-model")
+    service = llm_service.LLMService(
+        base_url="http://llm",
+        model="test-model",
+        client_factory=lambda **_: WrapperClient(),
+    )
 
     await service.chat("base prompt", context=["note one", "note two"])
 
