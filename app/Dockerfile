@@ -1,34 +1,31 @@
-# app/Dockerfile
-FROM python:3.11-slim
+FROM python:3.11-slim-bookworm
 
-# 1) Готові ARMv7-вheels з piwheels + fallback на PyPI
-ENV PIP_INDEX_URL=https://www.piwheels.org/simple \
-    PIP_EXTRA_INDEX_URL=https://pypi.org/simple \
-    PIP_NO_CACHE_DIR=1 \
+ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1 \
-    # приглушити багатопоточність BLAS на слабкому CPU
-    OPENBLAS_NUM_THREADS=1 \
-    OMP_NUM_THREADS=1
-
-# 2) Рантайм-ліби для NumPy + утиліти для камери та healthcheck
-#    (libgfortran5, libopenblas0-pthread — це прямо рекомендація під NumPy на ARM; v4l-utils дає v4l2-ctl)
-RUN apt-get update && apt-get install -y --no-install-recommends \
-      libgfortran5 libopenblas0-pthread ca-certificates \
-      v4l-utils curl ffmpeg \
-    && rm -rf /var/lib/apt/lists/*
+    PIP_NO_CACHE_DIR=1
 
 WORKDIR /app
-COPY requirements.txt .
 
-# 3) Забороняємо збірку з сирців — тільки wheels (на ARM це критично)
+# Встановити OpenCV через apt
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3-opencv \
+    libopencv-dev \
+    libglib2.0-0 \
+    libsm6 \
+    libxext6 \
+    libxrender-dev \
+    libgomp1 \
+    libatlas-base-dev \
+    libjpeg-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY requirements.txt .
+RUN pip install --only-binary=:all: numpy==1.26.4
 RUN pip install --only-binary=:all: -r requirements.txt
 
-# 4) Код і мінімальна FP32-модель TFLite (TFL3)
-#    Копіюємо всі внутрішні модулі, щоб уникнути помилки ModuleNotFoundError
-COPY main.py model.tflite pc_client.py gpio_config.yaml ./
-COPY actuators ./actuators
-COPY sensors ./sensors
+COPY . .
+RUN mkdir -p /app/logs /app/models
 
 EXPOSE 8000
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]
+
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
