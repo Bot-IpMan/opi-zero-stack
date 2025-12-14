@@ -5,10 +5,11 @@ import asyncio
 import json
 import logging
 import os
-import subprocess
 import time
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
+
+import cv2
 
 import numpy as np
 import paho.mqtt.client as mqtt
@@ -57,6 +58,27 @@ class ArmMoveRequest(BaseModel):
 
 
 app = FastAPI(title="Orange Pi Zero Executor")
+
+
+def init_camera() -> cv2.VideoCapture:
+    cap = cv2.VideoCapture(CAMERA_DEVICE)
+
+    cap.set(cv2.CAP_PROP_FRAME_WIDTH, CAMERA_WIDTH)
+    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, CAMERA_HEIGHT)
+    cap.set(cv2.CAP_PROP_FPS, 30)
+
+    # КРИТИЧНО: Налаштування експозиції та яскравості
+    cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 1)  # Manual mode
+    cap.set(cv2.CAP_PROP_EXPOSURE, 150)
+    cap.set(cv2.CAP_PROP_BRIGHTNESS, 128)
+    cap.set(cv2.CAP_PROP_CONTRAST, 32)
+    cap.set(cv2.CAP_PROP_SATURATION, 64)
+    cap.set(cv2.CAP_PROP_GAIN, 50)
+
+    return cap
+
+
+cap = init_camera()
 
 
 class ExecutorContext:
@@ -326,50 +348,79 @@ async def emergency_stop():
     return {"status": "stopped"}
 
 
+def ensure_camera_ready() -> cv2.VideoCapture:
+    global cap
+
+    if cap is None or not cap.isOpened():
+        logger.warning("Камеру не відкрито, ініціалізую повторно")
+        cap = init_camera()
+
+    return cap
+
+
 def capture_snapshot() -> bytes:
-    """Захопити одиночний кадр з локальної камери через ffmpeg."""
+    """Захопити одиночний кадр з локальної камери через OpenCV."""
 
-    cmd = [
-        "ffmpeg",
-        "-f",
-        "v4l2",
-        "-video_size",
-        f"{CAMERA_WIDTH}x{CAMERA_HEIGHT}",
-        "-i",
-        CAMERA_DEVICE,
-        "-vframes",
-        "1",
-        "-f",
-        "image2pipe",
-        "-vcodec",
-        "mjpeg",
-        "-",
-    ]
+    camera = ensure_camera_ready()
+    ret, frame = camera.read()
 
-    try:
-        result = subprocess.run(
-            cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            check=False,
-            timeout=8,
-        )
-    except subprocess.TimeoutExpired as exc:
-        raise HTTPException(status_code=504, detail="camera_timeout") from exc
-
-    if result.returncode != 0 or not result.stdout:
-        logger.error(
-            "ffmpeg camera error: rc=%s, stderr=%s", result.returncode, result.stderr.decode()
-        )
+    if not ret or frame is None:
         raise HTTPException(status_code=503, detail="camera_unavailable")
 
-    return result.stdout
+    success, buffer = cv2.imencode(".jpg", frame)
+    if not success:
+        raise HTTPException(status_code=500, detail="camera_encode_failed")
+
+    return buffer.tobytes()
 
 
 @app.get("/camera/snapshot")
 async def camera_snapshot():
     frame = capture_snapshot()
     return Response(content=frame, media_type="image/jpeg")
+
+
+@app.get("/camera/settings")
+async def get_camera_settings():
+    """Показати поточні налаштування камери."""
+
+    camera = ensure_camera_ready()
+    return {
+        "width": camera.get(cv2.CAP_PROP_FRAME_WIDTH),
+        "height": camera.get(cv2.CAP_PROP_FRAME_HEIGHT),
+        "fps": camera.get(cv2.CAP_PROP_FPS),
+        "exposure": camera.get(cv2.CAP_PROP_EXPOSURE),
+        "brightness": camera.get(cv2.CAP_PROP_BRIGHTNESS),
+        "contrast": camera.get(cv2.CAP_PROP_CONTRAST),
+        "saturation": camera.get(cv2.CAP_PROP_SATURATION),
+        "gain": camera.get(cv2.CAP_PROP_GAIN),
+    }
+
+
+@app.post("/camera/settings")
+async def update_camera_settings(settings: Dict[str, float]):
+    """Змінити налаштування камери в реальному часі."""
+
+    camera = ensure_camera_ready()
+
+    if "exposure" in settings:
+        camera.set(cv2.CAP_PROP_EXPOSURE, settings["exposure"])
+    if "brightness" in settings:
+        camera.set(cv2.CAP_PROP_BRIGHTNESS, settings["brightness"])
+    if "contrast" in settings:
+        camera.set(cv2.CAP_PROP_CONTRAST, settings["contrast"])
+    if "saturation" in settings:
+        camera.set(cv2.CAP_PROP_SATURATION, settings["saturation"])
+    if "gain" in settings:
+        camera.set(cv2.CAP_PROP_GAIN, settings["gain"])
+    if "fps" in settings:
+        camera.set(cv2.CAP_PROP_FPS, settings["fps"])
+    if "width" in settings:
+        camera.set(cv2.CAP_PROP_FRAME_WIDTH, settings["width"])
+    if "height" in settings:
+        camera.set(cv2.CAP_PROP_FRAME_HEIGHT, settings["height"])
+
+    return {"status": "updated"}
 
 
 @app.get("/healthz")
