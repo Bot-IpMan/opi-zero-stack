@@ -13,6 +13,12 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+try:
+    import httpx  # type: ignore  # noqa: F401
+except ImportError:  # pragma: no cover - fallback stub for offline envs
+    from tests import httpx_stub as httpx  # type: ignore
+    sys.modules["httpx"] = httpx
+
 from app import pc_client as pc_client_module
 
 
@@ -37,8 +43,21 @@ class DummyPCClient:
 @pytest.fixture(scope="session")
 def event_loop():
     loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
     yield loop
     loop.close()
+
+
+def pytest_configure(config):
+    config.addinivalue_line("markers", "asyncio: run test in asyncio event loop")
+
+
+def pytest_pyfunc_call(pyfuncitem):
+    if asyncio.iscoroutinefunction(pyfuncitem.obj):
+        loop = asyncio.get_event_loop()
+        loop.run_until_complete(pyfuncitem.obj(**pyfuncitem.funcargs))
+        return True
+    return None
 
 
 @pytest.fixture(scope="session")

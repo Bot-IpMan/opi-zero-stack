@@ -28,7 +28,10 @@ prometheus_mock.CONTENT_TYPE_LATEST = "text/plain"
 
 sys.modules.setdefault("uvicorn", types.SimpleNamespace())
 sys.modules.setdefault("yaml", MagicMock(safe_load=lambda text: text))
-sys.modules.setdefault("httpx", MagicMock())
+sys.modules.setdefault("anthropic", MagicMock(Anthropic=MagicMock()))
+sys.modules.setdefault("paho", MagicMock())
+sys.modules.setdefault("paho.mqtt", MagicMock())
+sys.modules.setdefault("paho.mqtt.client", MagicMock(Client=MagicMock()))
 sys.modules.setdefault("fastapi", fastapi_mock)
 sys.modules.setdefault("fastapi.responses", MagicMock(RedirectResponse=MagicMock))
 sys.modules.setdefault("prometheus_client", prometheus_mock)

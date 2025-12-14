@@ -6,6 +6,9 @@ httpx = pytest.importorskip("httpx")
 AsyncClient = httpx.AsyncClient
 ASGITransport = httpx.ASGITransport
 
+if getattr(httpx, "__is_stub__", False):
+    pytest.skip("httpx stubbed; integration tests skipped", allow_module_level=True)
+
 
 @pytest.mark.asyncio
 async def test_arm_move_triggers_serial(patched_main):
