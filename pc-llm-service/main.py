@@ -1,4 +1,5 @@
 import asyncio
+import json
 import logging
 import os
 import re
@@ -7,6 +8,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any, Dict, Optional
 
+from anthropic import Anthropic
 import uvicorn
 import yaml
 from fastapi import Body, FastAPI, HTTPException, Request, Response
@@ -160,6 +162,101 @@ def get_ctx() -> AppContext:
 
 
 app = FastAPI(title="PC LLM Coordinator")
+anthropic_client = Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+
+
+@app.post("/vision/analyze")
+async def analyze_vision(request: dict):
+    """
+    Аналіз зображення та прийняття рішення
+
+    Input:
+        - image: base64 encoded jpg
+        - robot_state: {"servos": {"base": 45, ...}}
+        - task: "що треба зробити"
+
+    Output:
+        - observation: що бачу
+        - analysis: аналіз
+        - action: що треба зробити
+        - command: {"type": "move_servo", "params": {...}}
+    """
+
+    image_b64 = request.get("image")
+    robot_state = request.get("robot_state", {})
+    task = request.get("task", "Аналізуй зображення")
+
+    try:
+        message = anthropic_client.messages.create(
+            model="claude-sonnet-4-20250514",
+            max_tokens=1024,
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "image",
+                            "source": {
+                                "type": "base64",
+                                "media_type": "image/jpeg",
+                                "data": image_b64,
+                            },
+                        },
+                        {
+                            "type": "text",
+                            "text": f"""Ти керуєш 6-DOF роборукою для догляду за рослинами.
+
+Поточний стан роборуки: {json.dumps(robot_state, indent=2)}
+
+Завдання: {task}
+
+На основі зображення:
+1. Детально опиши що ти бачиш (об'єкти, освітлення, положення роборуки)
+2. Проаналізуй поточну ситуацію
+3. Визнач яку дію треба виконати
+4. Сформуй команду для роборуки
+
+КРИТИЧНО: Зображення може бути темним через погані налаштування камери. 
+Якщо бачиш темряву - скажи про це і запропонуй налаштувати камеру.
+
+Відповідь ТІЛЬКИ у JSON форматі (без markdown):
+{{
+  "observation": "детальний опис того що бачу на камері",
+  "camera_quality": "good/dark/blurry - оцінка якості зображення",
+  "analysis": "аналіз ситуації та що потрібно зробити",
+  "action": "конкретна дія",
+  "command": {{
+    "type": "move_servo" | "adjust_camera" | "wait",
+    "params": {{
+      "servo": "base|shoulder|elbow|wrist|gripper",
+      "angle": 0-180,
+      "speed": 0-100
+    }}
+  }},
+  "camera_adjustments": {{
+    "exposure": 150,
+    "brightness": 128
+  }}
+}}""",
+                        },
+                    ],
+                }
+            ],
+        )
+
+        response_text = message.content[0].text
+
+        start = response_text.find("{")
+        end = response_text.rfind("}") + 1
+        if start != -1 and end > start:
+            json_str = response_text[start:end]
+            decision = json.loads(json_str)
+            return decision
+
+        raise ValueError("No JSON found in response")
+
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
 
 
 def resolve_camera_device(cfg: dict, override: Optional[str]) -> str:
