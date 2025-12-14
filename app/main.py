@@ -20,6 +20,7 @@ from pydantic import BaseModel
 from actuators import ActuatorManager
 from pc_client import PCClient
 from sensors import SensorManager
+from vision_control_loop import VisionControlLoop
 
 logging.basicConfig(level=logging.INFO, format="[%(levelname)s] %(name)s: %(message)s")
 logger = logging.getLogger(__name__)
@@ -301,12 +302,46 @@ class ExecutorContext:
 
 
 ctx = ExecutorContext()
+control_loop: VisionControlLoop | None = None
+control_loop_task: asyncio.Task | None = None
 
 
 @app.on_event("startup")
 async def startup():
+    global control_loop, control_loop_task
     ctx.loop = asyncio.get_running_loop()
     asyncio.create_task(ctx.scheduler_loop())
+    control_loop = VisionControlLoop(
+        robot_url="http://localhost:8000",
+        llm_url=os.getenv("LLM_URL", "http://192.168.1.152:8080"),
+        mqtt_client=ctx.mqtt,
+    )
+    control_loop_task = asyncio.create_task(control_loop.run_loop())
+
+
+@app.post("/control/start")
+async def start_control(task: str = "Навчитися рухати роборукою"):
+    global control_loop_task
+    if control_loop is None:
+        raise HTTPException(status_code=503, detail="control_loop_unavailable")
+
+    control_loop_task = asyncio.create_task(control_loop.run_loop(task=task))
+    return {"status": "started"}
+
+
+@app.post("/control/stop")
+async def stop_control():
+    global control_loop_task
+    if control_loop_task and not control_loop_task.done():
+        control_loop_task.cancel()
+        try:
+            await control_loop_task
+        except asyncio.CancelledError:
+            pass
+        control_loop_task = None
+        return {"status": "stopped"}
+
+    return {"status": "idle"}
 
 
 @app.post("/devices/light")
