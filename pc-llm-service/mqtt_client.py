@@ -6,19 +6,36 @@ logger = logging.getLogger(__name__)
 
 
 class MQTTClient:
-    def __init__(self, host: str, port: int, topic_prefix: str = "greenhouse"):
+    def __init__(
+        self,
+        host: str,
+        port: int,
+        topic_prefix: str = "greenhouse",
+        enabled: bool = True,
+    ):
         self.topic_prefix = topic_prefix.rstrip("/")
-        self.client: mqtt.Client | None = mqtt.Client()
+        self.client: mqtt.Client | None = None
         self.connected = False
+
+        if not enabled:
+            logger.info("MQTT вимкнено через конфігурацію")
+            return
+
         try:
+            self.client = mqtt.Client()
             self.client.on_connect = self._on_connect
             self.client.connect(host, port, 60)
             self.connected = True
             logger.info("MQTT підключено до %s:%s", host, port)
-        except Exception:
+        except Exception as exc:
             # Залишаємо клієнт неактивним, щоб решта сервісу працювала без MQTT
             self.client = None
-            logger.exception("Не вдалося підключитись до MQTT брокера %s:%s", host, port)
+            logger.warning(
+                "Не вдалося підключитись до MQTT брокера %s:%s: %s. MQTT вимкнено",
+                host,
+                port,
+                exc,
+            )
 
     def _on_connect(self, client, userdata, flags, rc):
         if rc == 0:

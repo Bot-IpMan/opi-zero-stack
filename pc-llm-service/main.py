@@ -109,6 +109,7 @@ class AppContext:
             mqtt_cfg.get("host", "mqtt"),
             mqtt_cfg.get("port", 1883),
             mqtt_cfg.get("topic_prefix", "greenhouse"),
+            mqtt_cfg.get("enabled", True),
         )
         self.mqtt.loop_background()
         self.decisions: dict[str, DecisionRecord] = {}

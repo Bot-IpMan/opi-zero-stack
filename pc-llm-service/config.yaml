@@ -1,4 +1,5 @@
 mqtt:
+  enabled: ${MQTT_ENABLED:-true}
   host: mqtt
   port: 1883
   topic_prefix: greenhouse
