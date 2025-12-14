@@ -1,7 +1,8 @@
 stable-baselines3[extra]==2.2.1
 gymnasium==0.29.1
-torch==1.13.1
-torchvision==0.14.1
+torch==2.9.1
+torchvision
+torchaudio
 numpy==1.24.3
 pybullet==3.2.6
 tensorboard==2.15.1
