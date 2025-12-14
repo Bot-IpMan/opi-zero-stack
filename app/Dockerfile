@@ -17,11 +17,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libgomp1 \
     libatlas-base-dev \
     libjpeg-dev \
+    build-essential \
+    python3-dev \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
-RUN pip install --only-binary=:all: numpy==1.26.4
-RUN pip install --only-binary=:all: -r requirements.txt
+RUN pip install numpy==1.26.4
+RUN pip install -r requirements.txt
 
 COPY . .
 RUN mkdir -p /app/logs /app/models
