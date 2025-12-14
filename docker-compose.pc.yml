@@ -34,7 +34,9 @@ services:
       MQTT_ENABLED: ${MQTT_ENABLED:-true}
       OLLAMA_MODEL: ${OLLAMA_MODEL:-gemma3:4b}
       OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://192.168.1.220:11434}
-      CAMERA_DEVICE: ${CAMERA_DEVICE:-http://opi-zero:8000/camera/snapshot}
+      CAMERA_DEVICE: ${CAMERA_DEVICE:-}
+      OPI_HOST: ${OPI_HOST:-opi-zero}
+      OPI_PORT: ${OPI_PORT:-8000}
       VECTOR_DB_PATH: ${VECTOR_DB_PATH:-/service/data/vector_db}
       KNOWLEDGE_PATH: ${KNOWLEDGE_PATH:-/service/knowledge}
       MQTT_HOST: ${MQTT_HOST:-mqtt}

@@ -9,11 +9,11 @@ pc_api:
   port: 8080
 
 opi:
-  host: opi-zero
-  port: 8000
+  host: ${OPI_HOST:-opi-zero}
+  port: ${OPI_PORT:-8000}
 
 camera:
-  device: ${CAMERA_DEVICE:-http://opi-zero:8000/camera/snapshot}
+  device: ${CAMERA_DEVICE:-}
   width: 640
   height: 480
   fps: 15

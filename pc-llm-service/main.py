@@ -162,12 +162,28 @@ def get_ctx() -> AppContext:
 app = FastAPI(title="PC LLM Coordinator")
 
 
+def resolve_camera_device(cfg: dict, override: Optional[str]) -> str:
+    if override:
+        return override
+
+    camera_cfg = cfg.get("camera", {})
+    device = camera_cfg.get("device")
+    if device:
+        return device
+
+    opi_cfg = cfg.get("opi", {})
+    host = opi_cfg.get("host")
+    port = opi_cfg.get("port", 8000)
+    if host:
+        return f"http://{host}:{port}/camera/snapshot"
+
+    return "/dev/video0"
+
+
 @app.post("/analyze_image")
 async def analyze_image(payload: AnalyzeRequest):
     ctx = get_ctx()
-    device = payload.device or ctx.cfg["camera"].get(
-        "device", "http://opi-zero:8000/camera/snapshot"
-    )
+    device = resolve_camera_device(ctx.cfg, payload.device)
     try:
         frame = capture_single(device)
         metrics = analyze_frame(frame)
@@ -286,7 +302,7 @@ async def system_status(payload: Optional[RobotStatus] = Body(default=None)):
     if payload:
         logger.debug("Отримано статус від робота: %s", payload.model_dump())
     try:
-        capture_single(ctx.cfg["camera"].get("device", "http://opi-zero:8000/camera/snapshot"))
+        capture_single(resolve_camera_device(ctx.cfg, None))
         camera_ok = True
     except CameraError:
         camera_ok = False
