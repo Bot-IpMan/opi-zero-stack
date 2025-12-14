@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Robot Arm Monitor</title>
+    <script src="https://cdn.jsdelivr.net/npm/mqtt@4.3.7/dist/mqtt.min.js"></script>
+    <style>
+        body {
+            font-family: monospace;
+            background: #000;
+            color: #0f0;
+            padding: 20px;
+        }
+        .panel {
+            border: 1px solid #0f0;
+            padding: 10px;
+            margin: 10px 0;
+        }
+        .log {
+            max-height: 300px;
+            overflow-y: scroll;
+            background: #111;
+            padding: 10px;
+        }
+        .error { color: #f00; }
+        .success { color: #0f0; }
+        .warning { color: #ff0; }
+        img { max-width: 640px; border: 1px solid #0f0; }
+    </style>
+</head>
+<body>
+    <h1>🦾 Robot Arm Real-Time Monitor</h1>
+    
+    <div class="panel">
+        <h2>📷 Camera Feed</h2>
+        <img id="camera" src="" alt="Loading camera...">
+        <div id="camera-settings"></div>
+    </div>
+    
+    <div class="panel">
+        <h2>🧠 LLM Decisions</h2>
+        <div id="llm-log" class="log"></div>
+    </div>
+    
+    <div class="panel">
+        <h2>🤖 Robot Actions</h2>
+        <div id="robot-log" class="log"></div>
+    </div>
+    
+    <div class="panel">
+        <h2>❌ Errors</h2>
+        <div id="error-log" class="log"></div>
+    </div>
+
+    <script>
+        // MQTT Connection
+        const client = mqtt.connect('ws://192.168.1.220:9001');
+        
+        client.on('connect', () => {
+            console.log('Connected to MQTT');
+            
+            // Subscribe to all logs
+            client.subscribe('arm/logs/#');
+            client.subscribe('arm/camera/snapshot');
+        });
+        
+        client.on('message', (topic, message) => {
+            const msg = message.toString();
+            
+            if (topic === 'arm/camera/snapshot') {
+                // Update camera image
+                document.getElementById('camera').src = 
+                    'data:image/jpeg;base64,' + msg;
+            }
+            else if (topic.startsWith('arm/logs/')) {
+                const data = JSON.parse(msg);
+                const category = topic.split('/')[2];
+                
+                let logDiv;
+                if (category === 'llm') {
+                    logDiv = document.getElementById('llm-log');
+                    appendLog(logDiv, data, 'success');
+                }
+                else if (category === 'robot') {
+                    logDiv = document.getElementById('robot-log');
+                    appendLog(logDiv, data, 'success');
+                }
+                else if (category === 'error') {
+                    logDiv = document.getElementById('error-log');
+                    appendLog(logDiv, data, 'error');
+                }
+                else if (category === 'camera') {
+                    document.getElementById('camera-settings').innerHTML = 
+                        '<pre>' + JSON.stringify(data, null, 2) + '</pre>';
+                }
+            }
+        });
+        
+        function appendLog(element, data, className) {
+            const entry = document.createElement('div');
+            entry.className = className;
+            entry.textContent = new Date().toLocaleTimeString() + ': ' + 
+                                JSON.stringify(data, null, 2);
+            element.insertBefore(entry, element.firstChild);
+            
+            // Keep only last 50 entries
+            while (element.children.length > 50) {
+                element.removeChild(element.lastChild);
+            }
+        }
+        
+        // Periodic camera refresh
+        setInterval(() => {
+            fetch('http://192.168.1.220:8000/camera/snapshot')
+                .then(r => r.blob())
+                .then(blob => {
+                    const url = URL.createObjectURL(blob);
+                    document.getElementById('camera').src = url;
+                });
+        }, 1000);
+    </script>
+</body>
+</html>
