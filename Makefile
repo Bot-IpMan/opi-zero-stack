@@ -1,11 +1,11 @@
-.DEFAULT_GOAL := help
+	.DEFAULT_GOAL := help
 
 # Colors
-BOLD=\033[1m
-BLUE=\033[1;34m
-YELLOW=\033[1;33m
-GREEN=\033[1;32m
-RESET=\033[0m
+	BOLD=\033[1m
+	BLUE=\033[1;34m
+	YELLOW=\033[1;33m
+	GREEN=\033[1;32m
+	RESET=\033[0m
 
 .PHONY: help pc-build pc-up pc-logs pc-shell opi-build opi-up opi-logs opi-shell health-all monitor-mqtt test-connection \
 deploy-pc deploy-opi start logs monitor test-camera fix-camera train dashboard
@@ -42,10 +42,10 @@ pc-up:
 	@echo "${BLUE}[PC] Запуск сервісів ПК...${RESET}"
 	@CAM_DEV="$${CAMERA_DEVICE:-/dev/video0}"; \
 	if [ -e "$$CAM_DEV" ]; then \
-		echo "${BLUE}[PC] Камера виявлена ($$CAM_DEV). Проброшуємо пристрій...${RESET}"; \
-		docker compose -f docker-compose.pc.yml -f docker-compose.pc.camera.yml up -d; \
+	echo "${BLUE}[PC] Камера виявлена ($$CAM_DEV). Проброшуємо пристрій...${RESET}"; \
+	docker compose -f docker-compose.pc.yml -f docker-compose.pc.camera.yml up -d; \
 	else \
-		docker compose -f docker-compose.pc.yml up -d; \
+	docker compose -f docker-compose.pc.yml up -d; \
 	fi
 
 pc-logs:
