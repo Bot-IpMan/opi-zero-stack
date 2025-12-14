@@ -41,7 +41,7 @@ LLM_DECISIONS_REJECTED = Counter(
 
 
 def _expand_env(text: str) -> str:
-    pattern = re.compile(r"\$\{([^:}]+)(:-([^}]+))?}")
+    pattern = re.compile(r"\$\{([^:}]+)(:-([^}]*))?}")
 
     def repl(match: re.Match) -> str:
         var_name = match.group(1)
