@@ -52,12 +52,12 @@ def create_embedding_function(
 
     if TextEmbedding:
         try:
-            supported_models = TextEmbedding.list_supported_models()
-            if isinstance(supported_models, Iterable) and not isinstance(
-                supported_models, (str, bytes)
+            supported_models_raw = TextEmbedding.list_supported_models()
+            if isinstance(supported_models_raw, Iterable) and not isinstance(
+                supported_models_raw, (str, bytes)
             ):
                 normalized_models = []
-                for model in supported_models:
+                for model in supported_models_raw:
                     if isinstance(model, dict):
                         normalized_models.append(model.get("name"))
                     else:
@@ -71,22 +71,44 @@ def create_embedding_function(
             else:  # pragma: no cover - defensive guard for unexpected return types
                 supported_models = set()
 
-            if model_name not in supported_models:
-                logger.info(
-                    "FastEmbed model %s not supported, skipping FastEmbed backend.",
-                    model_name,
-                )
-            else:
-                logger.info("Using FastEmbed embeddings backend: %s", model_name)
+            # FastEmbed often publishes model IDs without namespaces. Try both the
+            # requested name and a variant without the leading namespace so that
+            # `BAAI/bge-small-en-v1.5` maps to the supported `bge-small-en-v1.5`.
+            candidates = [model_name]
+            if "/" in model_name:
+                candidates.append(model_name.split("/", 1)[1])
 
-                class FastEmbedEmbeddingFunction(embedding_functions.EmbeddingFunction):
-                    def __init__(self, model: TextEmbedding):
-                        self._model = model
+            for candidate in candidates:
+                if supported_models and candidate not in supported_models:
+                    continue
 
-                    def __call__(self, input: Iterable[str]):
-                        return [embedding.tolist() for embedding in self._model.embed(input)]
+                try:
+                    chosen_model = TextEmbedding(model_name=candidate)
+                    logger.info(
+                        "Using FastEmbed embeddings backend: %s (requested %s)",
+                        candidate,
+                        model_name,
+                    )
 
-                return FastEmbedEmbeddingFunction(TextEmbedding(model_name=model_name))
+                    class FastEmbedEmbeddingFunction(
+                        embedding_functions.EmbeddingFunction
+                    ):
+                        def __init__(self, model: TextEmbedding):
+                            self._model = model
+
+                        def __call__(self, input: Iterable[str]):
+                            return [
+                                embedding.tolist()
+                                for embedding in self._model.embed(input)
+                            ]
+
+                    return FastEmbedEmbeddingFunction(chosen_model)
+                except Exception:
+                    logger.warning(
+                        "FastEmbed model %s failed to initialize, trying next candidate.",
+                        candidate,
+                        exc_info=True,
+                    )
         except Exception:
             logger.warning(
                 "FastEmbed unavailable, falling back to SentenceTransformer backend.",
