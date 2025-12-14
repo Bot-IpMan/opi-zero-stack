@@ -7,27 +7,30 @@
 	GREEN=\033[1;32m
 	RESET=\033[0m
 
-.PHONY: help pc-build pc-up pc-logs pc-shell opi-build opi-up opi-logs opi-shell health-all monitor-mqtt test-connection \
-deploy-pc deploy-opi start logs monitor test-camera fix-camera train dashboard
+.PHONY: help pc-build pc-up pc-logs pc-shell pc-down opi-build opi-up opi-logs opi-shell opi-down health-all monitor-mqtt test-connection \
+deploy-pc deploy-opi start logs monitor test-camera fix-camera train dashboard stop-all
 
 help:
 	@echo "${BOLD}Доступні команди:${RESET}"
-	@echo "  ${BLUE}make pc-build${RESET}        - Збудувати LLM сервіс для ПК"
-	@echo "  ${BLUE}make pc-up${RESET}           - Запустити сервіси ПК у фоні"
-	@echo "  ${BLUE}make pc-logs${RESET}         - Потокові логи ПК сервісів"
-	@echo "  ${BLUE}make pc-shell${RESET}        - Відкрити shell у контейнері ПК"
-	@echo "  ${YELLOW}make opi-build${RESET}       - Збудувати сервіс Orange Pi Zero"
-	@echo "  ${YELLOW}make opi-up${RESET}          - Запустити сервіси Orange Pi у фоні"
-	@echo "  ${YELLOW}make opi-logs${RESET}        - Потокові логи сервісів Orange Pi"
-	@echo "  ${YELLOW}make opi-shell${RESET}       - Відкрити shell у контейнері Orange Pi"
-	@echo "  ${GREEN}make health-all${RESET}      - Перевірка стану всіх сервісів"
-	@echo "  ${GREEN}make monitor-mqtt${RESET}    - Моніторинг топіку greenhouse/# через MQTT"
-	@echo "  ${GREEN}make test-connection${RESET} - Тест з'єднання між ПК та Orange Pi"
-	@echo "  ${BLUE}make start${RESET}          - Запуск всіх сервісів у фоні"
-	@echo "  ${BLUE}make logs${RESET}           - Потокові логи всіх сервісів"
-	@echo "  ${GREEN}make monitor${RESET}        - Моніторинг топіків arm/# через MQTT"
-	@echo "  ${YELLOW}make test-camera${RESET}     - Зберегти знімок та показати налаштування камери"
-	@echo "  ${YELLOW}make fix-camera${RESET}      - Встановити експозицію, яскравість та gain"
+        @echo "  ${BLUE}make pc-build${RESET}        - Збудувати LLM сервіс для ПК"
+        @echo "  ${BLUE}make pc-up${RESET}           - Запустити сервіси ПК у фоні"
+        @echo "  ${BLUE}make pc-logs${RESET}         - Потокові логи ПК сервісів"
+        @echo "  ${BLUE}make pc-shell${RESET}        - Відкрити shell у контейнері ПК"
+        @echo "  ${BLUE}make pc-down${RESET}         - Зупинити та видалити сервіси ПК"
+        @echo "  ${YELLOW}make opi-build${RESET}       - Збудувати сервіс Orange Pi Zero"
+        @echo "  ${YELLOW}make opi-up${RESET}          - Запустити сервіси Orange Pi у фоні"
+        @echo "  ${YELLOW}make opi-logs${RESET}        - Потокові логи сервісів Orange Pi"
+        @echo "  ${YELLOW}make opi-shell${RESET}       - Відкрити shell у контейнері Orange Pi"
+        @echo "  ${YELLOW}make opi-down${RESET}        - Зупинити та видалити сервіси Orange Pi"
+        @echo "  ${GREEN}make health-all${RESET}      - Перевірка стану всіх сервісів"
+        @echo "  ${GREEN}make monitor-mqtt${RESET}    - Моніторинг топіку greenhouse/# через MQTT"
+        @echo "  ${GREEN}make test-connection${RESET} - Тест з'єднання між ПК та Orange Pi"
+        @echo "  ${BLUE}make start${RESET}          - Запуск всіх сервісів у фоні"
+        @echo "  ${BLUE}make logs${RESET}           - Потокові логи всіх сервісів"
+        @echo "  ${BLUE}make stop-all${RESET}       - Зупинити всі ПК та Orange Pi сервіси"
+        @echo "  ${GREEN}make monitor${RESET}        - Моніторинг топіків arm/# через MQTT"
+        @echo "  ${YELLOW}make test-camera${RESET}     - Зберегти знімок та показати налаштування камери"
+        @echo "  ${YELLOW}make fix-camera${RESET}      - Встановити експозицію, яскравість та gain"
 	@echo "  ${YELLOW}make train${RESET}           - Запустити навчання роборуки"
 	@echo "  ${GREEN}make dashboard${RESET}      - Запустити локальний dashboard на 8888"
 	@echo "  ${BLUE}make deploy-pc${RESET}        - Розгортання сервісів на ПК"
@@ -53,8 +56,12 @@ pc-logs:
 	docker compose -f docker-compose.pc.yml logs -f
 
 pc-shell:
-	@echo "${BLUE}[PC] Shell у контейнері pc-llm...${RESET}"
-	docker compose -f docker-compose.pc.yml exec pc-llm-service /bin/bash
+        @echo "${BLUE}[PC] Shell у контейнері pc-llm...${RESET}"
+        docker compose -f docker-compose.pc.yml exec pc-llm-service /bin/bash
+
+pc-down:
+        @echo "${BLUE}[PC] Зупинка сервісів ПК та очищення контейнерів...${RESET}"
+        docker compose -f docker-compose.pc.yml -f docker-compose.pc.camera.yml down
 
 # Orange Pi Zero
 opi-build:
@@ -70,8 +77,12 @@ opi-logs:
 	docker compose -f docker-compose.orangepi.yml logs -f
 
 opi-shell:
-	@echo "${YELLOW}[OPI] Shell у контейнері opi-executor...${RESET}"
-	docker compose -f docker-compose.orangepi.yml exec opi-executor /bin/bash
+        @echo "${YELLOW}[OPI] Shell у контейнері opi-executor...${RESET}"
+        docker compose -f docker-compose.orangepi.yml exec opi-executor /bin/bash
+
+opi-down:
+        @echo "${YELLOW}[OPI] Зупинка сервісів Orange Pi та очищення контейнерів...${RESET}"
+        docker compose -f docker-compose.orangepi.yml down
 
 # Діагностика
 health-all:
@@ -90,10 +101,13 @@ test-connection:
 
 # Загальні команди
 start:
-	docker compose up -d
+        docker compose up -d
 
 logs:
-	docker compose logs -f
+        docker compose logs -f
+
+stop-all: pc-down opi-down
+        @echo "${BOLD}[ALL] Усі сервіси ПК та Orange Pi зупинено.${RESET}"
 
 monitor:
 	docker compose exec mqtt mosquitto_sub -h localhost -t 'arm/#' -v
