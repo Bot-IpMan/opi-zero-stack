@@ -35,7 +35,7 @@ services:
       OLLAMA_MODEL: ${OLLAMA_MODEL:-gemma3:4b}
       OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://192.168.1.220:11434}
       CAMERA_DEVICE: ${CAMERA_DEVICE:-}
-      OPI_HOST: ${OPI_HOST:-opi-zero}
+      OPI_HOST: ${OPI_HOST:-192.168.1.152}
       OPI_PORT: ${OPI_PORT:-8000}
       VECTOR_DB_PATH: ${VECTOR_DB_PATH:-/service/data/vector_db}
       KNOWLEDGE_PATH: ${KNOWLEDGE_PATH:-/service/knowledge}
