@@ -1,0 +1,41 @@
+version: '3.8'
+
+services:
+  mqtt:
+    image: eclipse-mosquitto:2
+    ports:
+      - "1883:1883"
+      - "9001:9001"  # WebSocket для dashboard
+    volumes:
+      - ./mosquitto/config:/mosquitto/config
+    restart: unless-stopped
+
+  robot-app:
+    build: ./app
+    devices:
+      - /dev/video0:/dev/video0
+      - /dev/ttyACM0:/dev/ttyACM0
+    group_add:
+      - video
+      - dialout
+    environment:
+      - MQTT_BROKER=mqtt
+      - LLM_URL=http://192.168.1.152:8080
+      - CAMERA_DEVICE=/dev/video0
+      - SERIAL_PORT=/dev/ttyACM0
+    ports:
+      - "8000:8000"
+    depends_on:
+      - mqtt
+    restart: unless-stopped
+
+  pc-llm-service:
+    build: ./pc-llm-service
+    environment:
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - MQTT_BROKER=mqtt
+    ports:
+      - "8080:8080"
+    depends_on:
+      - mqtt
+    restart: unless-stopped
