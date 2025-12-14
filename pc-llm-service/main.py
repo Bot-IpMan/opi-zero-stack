@@ -281,7 +281,7 @@ async def metrics():
 @app.api_route("/system_status", methods=["GET", "POST"])
 async def system_status(payload: Optional[RobotStatus] = Body(default=None)):
     ctx = get_ctx()
-    mqtt_ok = ctx.mqtt.client.is_connected()
+    mqtt_ok = bool(getattr(ctx.mqtt, "connected", False))
     if payload:
         logger.debug("Отримано статус від робота: %s", payload.model_dump())
     try:
