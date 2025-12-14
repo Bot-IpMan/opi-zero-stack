@@ -20,6 +20,7 @@ from pydantic import BaseModel
 from actuators import ActuatorManager
 from pc_client import PCClient
 from sensors import SensorManager
+from mqtt_logger import MQTTLogger
 from vision_control_loop import VisionControlLoop
 
 logging.basicConfig(level=logging.INFO, format="[%(levelname)s] %(name)s: %(message)s")
@@ -80,6 +81,7 @@ def init_camera() -> cv2.VideoCapture:
 
 
 cap = init_camera()
+mqtt_logger = MQTTLogger(MQTT_HOST)
 
 
 class ExecutorContext:
@@ -315,6 +317,7 @@ async def startup():
         robot_url="http://localhost:8000",
         llm_url=os.getenv("LLM_URL", "http://192.168.1.152:8080"),
         mqtt_client=ctx.mqtt,
+        mqtt_logger=mqtt_logger,
     )
     control_loop_task = asyncio.create_task(control_loop.run_loop())
 
@@ -389,6 +392,16 @@ def ensure_camera_ready() -> cv2.VideoCapture:
     if cap is None or not cap.isOpened():
         logger.warning("Камеру не відкрито, ініціалізую повторно")
         cap = init_camera()
+        mqtt_logger.log_camera("reinitialized", {
+            "width": cap.get(cv2.CAP_PROP_FRAME_WIDTH),
+            "height": cap.get(cv2.CAP_PROP_FRAME_HEIGHT),
+            "fps": cap.get(cv2.CAP_PROP_FPS),
+            "exposure": cap.get(cv2.CAP_PROP_EXPOSURE),
+            "brightness": cap.get(cv2.CAP_PROP_BRIGHTNESS),
+            "contrast": cap.get(cv2.CAP_PROP_CONTRAST),
+            "saturation": cap.get(cv2.CAP_PROP_SATURATION),
+            "gain": cap.get(cv2.CAP_PROP_GAIN),
+        })
 
     return cap
 
@@ -400,10 +413,12 @@ def capture_snapshot() -> bytes:
     ret, frame = camera.read()
 
     if not ret or frame is None:
+        mqtt_logger.log_error("camera_unavailable during snapshot")
         raise HTTPException(status_code=503, detail="camera_unavailable")
 
     success, buffer = cv2.imencode(".jpg", frame)
     if not success:
+        mqtt_logger.log_error("camera_encode_failed")
         raise HTTPException(status_code=500, detail="camera_encode_failed")
 
     return buffer.tobytes()
@@ -420,7 +435,7 @@ async def get_camera_settings():
     """Показати поточні налаштування камери."""
 
     camera = ensure_camera_ready()
-    return {
+    settings = {
         "width": camera.get(cv2.CAP_PROP_FRAME_WIDTH),
         "height": camera.get(cv2.CAP_PROP_FRAME_HEIGHT),
         "fps": camera.get(cv2.CAP_PROP_FPS),
@@ -430,6 +445,8 @@ async def get_camera_settings():
         "saturation": camera.get(cv2.CAP_PROP_SATURATION),
         "gain": camera.get(cv2.CAP_PROP_GAIN),
     }
+    mqtt_logger.log_camera("read", settings)
+    return settings
 
 
 @app.post("/camera/settings")
@@ -455,7 +472,9 @@ async def update_camera_settings(settings: Dict[str, float]):
     if "height" in settings:
         camera.set(cv2.CAP_PROP_FRAME_HEIGHT, settings["height"])
 
-    return {"status": "updated"}
+    updated = await get_camera_settings()
+    mqtt_logger.log_camera("updated", updated)
+    return {"status": "updated", "settings": updated}
 
 
 @app.get("/healthz")

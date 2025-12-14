@@ -21,6 +21,7 @@ from mqtt_client import MQTTClient
 from rag import DEFAULT_EMBEDDING_MODEL, Retriever
 from rag_llm import RAGPipeline
 from vision_processor import CameraError, analyze_frame, capture_single
+from mqtt_logger import MQTTLogger
 
 logging.basicConfig(level=logging.INFO, format="[%(levelname)s] %(name)s: %(message)s")
 logger = logging.getLogger(__name__)
@@ -163,6 +164,7 @@ def get_ctx() -> AppContext:
 
 app = FastAPI(title="PC LLM Coordinator")
 anthropic_client = Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+mqtt_logger = MQTTLogger(os.getenv("MQTT_BROKER", "mqtt"))
 
 
 @app.post("/vision/analyze")
@@ -251,11 +253,15 @@ async def analyze_vision(request: dict):
         if start != -1 and end > start:
             json_str = response_text[start:end]
             decision = json.loads(json_str)
+            mqtt_logger.log_llm_decision(decision)
+            if decision.get("camera_quality"):
+                mqtt_logger.log_camera(decision.get("camera_quality"), decision.get("camera_adjustments", {}))
             return decision
 
         raise ValueError("No JSON found in response")
 
     except Exception as exc:
+        mqtt_logger.log_error("vision_analyze_failed", str(exc))
         raise HTTPException(status_code=500, detail=str(exc))
 
 

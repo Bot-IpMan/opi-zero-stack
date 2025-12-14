@@ -11,10 +11,11 @@ import httpx
 
 
 class VisionControlLoop:
-    def __init__(self, robot_url, llm_url, mqtt_client):
+    def __init__(self, robot_url, llm_url, mqtt_client, mqtt_logger=None):
         self.robot_url = robot_url  # http://localhost:8000
         self.llm_url = llm_url  # http://192.168.1.152:8080
         self.mqtt = mqtt_client
+        self.logger = mqtt_logger
 
     async def get_snapshot(self):
         """Отримати знімок з камери"""
@@ -60,39 +61,40 @@ class VisionControlLoop:
             state = await self.get_robot_state()
 
             # Опублікувати в MQTT для моніторингу
-            self.mqtt.publish(
-                "arm/logs/iteration",
-                json.dumps(
-                    {
-                        "iteration": i,
-                        "timestamp": start_time.isoformat(),
-                        "state": state,
-                    }
-                ),
-            )
+            iteration_payload = {
+                "iteration": i,
+                "timestamp": start_time.isoformat(),
+                "state": state,
+            }
+            if self.logger:
+                self.logger.log("iteration", iteration_payload)
+            else:
+                self.mqtt.publish("arm/logs/iteration", json.dumps(iteration_payload))
 
             # 2. Запитати LLM
             decision = await self.ask_llm(image, state, task)
 
             # Опублікувати рішення LLM
-            self.mqtt.publish("arm/logs/llm_decision", json.dumps(decision))
+            if self.logger:
+                self.logger.log_llm_decision(decision)
+            else:
+                self.mqtt.publish("arm/logs/llm_decision", json.dumps(decision))
 
             # 3. Виконати команду
             if "command" in decision:
                 result = await self.execute_command(decision["command"])
 
                 # Опублікувати результат
-                self.mqtt.publish(
-                    "arm/logs/execution",
-                    json.dumps(
-                        {
-                            "command": decision["command"],
-                            "result": result,
-                            "duration_ms": (datetime.now() - start_time).total_seconds()
-                            * 1000,
-                        }
-                    ),
-                )
+                execution_payload = {
+                    "command": decision["command"],
+                    "result": result,
+                    "duration_ms": (datetime.now() - start_time).total_seconds() * 1000,
+                }
+                if self.logger:
+                    self.logger.log_robot_action(decision["command"], result)
+                    self.logger.log("execution", execution_payload)
+                else:
+                    self.mqtt.publish("arm/logs/execution", json.dumps(execution_payload))
 
             # 4. Пауза перед наступною ітерацією
             await asyncio.sleep(2)
