@@ -1,4 +1,6 @@
-FROM python:3.11-slim-bookworm
+# Base image pulled from AWS Public ECR to reduce reliance on Docker Hub token service.
+ARG PYTHON_BASE=public.ecr.aws/docker/library/python:3.11-slim-bookworm
+FROM ${PYTHON_BASE}
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
