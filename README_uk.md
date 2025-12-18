@@ -78,3 +78,29 @@ opi-zero-stack/
 - Запуск LLM-сервісу на ПК: `docker compose -f docker-compose.pc.yml up -d` (додайте профіль `with-mqtt`, якщо потрібен локальний брокер).
 - Запуск шлюзу на Orange Pi: `docker compose -f docker-compose.orangepi.yml up -d app mqttc`.
 - Прошивка Arduino: `arduino-cli compile --fqbn arduino:avr:mega robotarm/robotarm.ino && arduino-cli upload -p /dev/ttyACM0 --fqbn arduino:avr:mega robotarm/robotarm.ino`.
+
+## 🛠️ Усунення помилки `ModuleNotFoundError: No module named 'cv2'`
+Якщо контейнер `robot-app` постійно перезапускається і в логах з'являється помилка про відсутність `cv2`, виконайте:
+
+1. **Подивіться логи сервісу.**
+   ```bash
+docker compose logs -f robot-app
+```
+   Якщо бачите `ModuleNotFoundError: No module named 'cv2'`, образ зібрано без OpenCV.
+
+2. **Перезберіть образ з OpenCV.**
+   У `app/Dockerfile` вже є установка `python3-opencv` та `libopencv-dev`. Переконайтеся, що збираєте саме його:
+   ```bash
+docker compose build --no-cache robot-app
+docker compose up -d robot-app
+```
+
+3. **Швидка перевірка всередині свіжого контейнера.**
+   Запустіть окремий одноразовий контейнер і провалідуйте наявність модуля:
+   ```bash
+docker compose run --rm robot-app python - <<'PY'
+import cv2
+print(cv2.__version__)
+PY
+```
+   Якщо команда проходить, сервіс стартує без помилки; якщо ні — перевірте, що build не пропускає кроки з apt/pip.
