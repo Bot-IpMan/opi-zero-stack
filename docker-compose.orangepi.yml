@@ -6,6 +6,8 @@ services:
   app:
     build:
       context: ./app
+      args:
+        PYTHON_BASE: ${PYTHON_BASE:-python:3.11-slim-bookworm}
     container_name: robot-app
     network_mode: host  # Мінімізує затримки MQTT та дає прямий доступ до серійного порту.
     environment:
