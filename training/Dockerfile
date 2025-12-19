@@ -15,8 +15,9 @@ RUN apt-get update && apt-get install -y \
 
 # Встановлення Python залежностей
 COPY requirements.txt .
+RUN python -m pip install --upgrade pip setuptools wheel
 RUN pip install --no-cache-dir torch==2.9.1 torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir --prefer-binary -r requirements.txt
 
 # Копіювання коду
 COPY . .
