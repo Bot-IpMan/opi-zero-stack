@@ -24,8 +24,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
-RUN pip install numpy==1.26.4
-RUN pip install -r requirements.txt
+RUN python -m pip install --upgrade pip setuptools wheel
+RUN pip install --prefer-binary numpy==1.26.4
+RUN pip install --prefer-binary -r requirements.txt
 
 COPY . .
 RUN mkdir -p /app/logs /app/models

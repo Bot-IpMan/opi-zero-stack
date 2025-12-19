@@ -14,7 +14,8 @@ WORKDIR /service
 COPY requirements.txt ./
 # Install CPU-optimised wheels to minimise download size and avoid exhausting
 # limited build-space on hosts with small Docker storage.
-RUN pip install --no-cache-dir --extra-index-url https://download.pytorch.org/whl/cpu -r requirements.txt
+RUN python -m pip install --upgrade pip setuptools wheel
+RUN pip install --no-cache-dir --prefer-binary --extra-index-url https://download.pytorch.org/whl/cpu -r requirements.txt
 
 COPY . .
 EXPOSE 8080
