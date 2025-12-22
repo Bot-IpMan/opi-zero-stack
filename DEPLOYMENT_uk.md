@@ -45,7 +45,19 @@ curl http://localhost:8000/healthz
 - Контейнер отримує доступ до серійного порту через `SERIAL_DEV` та монтує `app/model.tflite`.
 - Для швидкого доступу до MQTT використовується `network_mode: host`.
 
-## 4) Прошивка Arduino Mega + PCA9685
+## 4) Скопіювати TFLite wheel з ПК (обхід компіляції)
+**На ПК (або скачати):**
+```bash
+# 1. Запустіть скрипт, який скачає wheel та скопіює на Orange Pi
+./app/scripts/copy_tflite_wheel.sh --host orangepi@192.168.1.101
+
+# 2. Якщо потрібно лише скачати wheel локально:
+./app/scripts/copy_tflite_wheel.sh --download-only
+```
+- Скрипт створює папку `app/wheels/` локально та копіює wheel у `~/opi-zero-stack/app/wheels/` на Orange Pi.
+- Далі використовуйте wheel під час інсталяції залежностей (див. інструкції у `app/requirements-orangepi-zero.txt`).
+
+## 5) Прошивка Arduino Mega + PCA9685
 ```bash
 cd firmware/robotarm
 arduino-cli core install arduino:avr
@@ -56,7 +68,7 @@ arduino-cli upload -p /dev/ttyACM0 --fqbn arduino:avr:mega robotarm.ino
 - Файл `config.h` містить пінмап та параметри сервоприводів.
 - JSON протокол для команд/телеметрії описаний у `ARCHITECTURE_uk.md`.
 
-## 5) Моніторинг та логування
+## 6) Моніторинг та логування
 - Папка `monitoring/` зарезервована під конфігурацію Prometheus/Grafana та експортери.
 - Для перегляду логів контейнерів використовуйте:
 ```bash
@@ -65,7 +77,7 @@ docker compose -f docker-compose.pc.yml logs -f pc-llm-service
 sudo docker compose -f docker-compose.orangepi.yml logs -f app mqttc
 ```
 
-## 6) Тести
+## 7) Тести
 ```bash
 # Локальні unit/integration тести
 pytest -q
@@ -74,7 +86,7 @@ pytest -q
 docker compose -f tests/docker-compose.test.yml up --build --abort-on-container-exit
 ```
 
-## 7) Типові топіки MQTT
+## 8) Типові топіки MQTT
 - `greenhouse/sensors/#` — телеметрія з Arduino/OPI.
 - `greenhouse/cmd/actuators` — команди на актуатори (JSON payload).
 - `greenhouse/llm/goals` — цілі від LLM/користувача.
