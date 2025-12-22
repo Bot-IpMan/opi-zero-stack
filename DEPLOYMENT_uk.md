@@ -26,6 +26,8 @@ docker compose -f docker-compose.pc.yml --profile with-mqtt up -d
 # 3. Перевірте здоров'я API
 curl http://localhost:8080/system_status
 ```
+Альтернатива через Makefile (короткі команди для ПК): `make pc-build`, `make pc-up`, `make pc-logs`, `make pc-down`.
+
 - Сервіс монтує `pc-llm-service/config.yaml`, `knowledge/` і `data/` у контейнер.
 - Камера проброшується автоматично через `CAMERA_DEVICE` (за замовчуванням `/dev/video0`), але `make pc-up` автоматично запускає сервіс без пробросу, якщо пристрій відсутній.
 - Для стабільної роботи на CPU без AVX задайте легкий ембединг через `EMBEDDING_MODEL` (за замовчуванням `BAAI/bge-small-en-v1.5`, FastEmbed) — це усуває падіння `pc-llm-service` з кодом 136.
@@ -42,6 +44,8 @@ docker compose -f docker-compose.orangepi.yml up -d app mqttc
 # 3. Перевірте здоров'я API Orange Pi
 curl http://localhost:8000/healthz
 ```
+Альтернатива через Makefile (короткі команди для Orange Pi): `make opi-build`, `make opi-up`, `make opi-logs`, `make opi-down`.
+
 - Контейнер отримує доступ до серійного порту через `SERIAL_DEV` та монтує `app/model.tflite`.
 - Для швидкого доступу до MQTT використовується `network_mode: host`.
 
