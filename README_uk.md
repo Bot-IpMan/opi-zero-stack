@@ -79,6 +79,25 @@ opi-zero-stack/
 - Запуск шлюзу на Orange Pi: `docker compose -f docker-compose.orangepi.yml up -d app mqttc`.
 - Прошивка Arduino: `arduino-cli compile --fqbn arduino:avr:mega robotarm/robotarm.ino && arduino-cli upload -p /dev/ttyACM0 --fqbn arduino:avr:mega robotarm/robotarm.ino`.
 
+## 🧰 Makefile-команди для ПК та Orange Pi
+Для зручності є окремі команди для кожної платформи. Логіка проста: префікс `pc-` для ПК і `opi-` для Orange Pi.
+
+**ПК:**
+- Збірка: `make pc-build`
+- Запуск: `make pc-up`
+- Логи: `make pc-logs`
+- Shell: `make pc-shell`
+- Зупинка: `make pc-down`
+
+**Orange Pi Zero:**
+- Збірка: `make opi-build`
+- Запуск: `make opi-up`
+- Логи: `make opi-logs`
+- Shell: `make opi-shell`
+- Зупинка: `make opi-down`
+
+> Підказка: `make help` покаже повний список команд, включно з діагностикою та моніторингом.
+
 ## 🛠️ Усунення помилки `ModuleNotFoundError: No module named 'cv2'`
 Якщо контейнер `robot-app` постійно перезапускається і в логах з'являється помилка про відсутність `cv2`, виконайте:
 
