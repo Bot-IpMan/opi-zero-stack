@@ -101,6 +101,10 @@ sudo usermod -aG docker $USER && newgrp docker
 cd ~ && git clone https://github.com/your-org/opi-zero-stack.git
 cd opi-zero-stack
 
+# 2.1) (Опційно) Скопіювати TFLite wheel з ПК для Python 3.11
+# Запуск на ПК:
+# ./app/scripts/copy_tflite_wheel.sh --host orangepi@192.168.1.101
+
 # 3) MQTT брокер + сервіс маршалізації
 cp app/.env.example app/.env
 sed -i 's/MQTT_HOST=.*/MQTT_HOST=localhost/' app/.env
@@ -275,4 +279,3 @@ Orange Pi переходить у `safe` режим: вимикає насоси
 
 **Як додати новий сенсор?**  
 Підключіть до Arduino, додайте обробку в прошивку (розділ `readSensors()`), Orange Pi автоматично підхопить нове поле з JSON.
-
