@@ -9,8 +9,8 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 from anthropic import Anthropic
-import uvicorn
 import yaml
+from waitress import serve
 from fastapi import Body, FastAPI, HTTPException, Request, Response
 from fastapi.responses import RedirectResponse
 from prometheus_client import CONTENT_TYPE_LATEST, Counter, generate_latest
@@ -413,4 +413,12 @@ async def system_status(payload: Optional[RobotStatus] = Body(default=None)):
 
 
 if __name__ == "__main__":
-    uvicorn.run("main:app", host="0.0.0.0", port=8080, reload=False, loop="asyncio")
+    logger.info("🚀 Запуск PC LLM сервісу на waitress")
+    logger.info("📍 Слухаю на http://0.0.0.0:8080")
+    serve(
+        app,
+        host="0.0.0.0",
+        port=8080,
+        threads=2,
+        _quiet=True,
+    )
