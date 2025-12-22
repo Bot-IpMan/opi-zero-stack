@@ -10,6 +10,7 @@ ENV PIP_INDEX_URL=https://www.piwheels.org/simple \
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
       libgfortran5 libopenblas0-pthread python3-numpy ca-certificates \
+      libatomic1 \
       v4l-utils curl \
       patch \
     && rm -rf /var/lib/apt/lists/*
