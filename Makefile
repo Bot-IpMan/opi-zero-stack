@@ -8,8 +8,9 @@ YELLOW=\033[1;33m
 GREEN=\033[1;32m
 RESET=\033[0m
 
-.PHONY: help pc-build pc-up pc-logs pc-shell pc-down opi-build opi-up opi-logs opi-shell opi-down health-all monitor-mqtt test-connection \
-        deploy-pc deploy-opi start logs monitor test-camera fix-camera train dashboard stop-all
+.PHONY: help pc-build pc-up pc-logs pc-shell pc-down pc-train pc-export pc-deploy \
+        opi-prepare opi-fix-requirements opi-fix-compose opi-build opi-up opi-logs opi-shell opi-down opi-health \
+        health-all monitor-mqtt test-connection deploy-pc deploy-opi start logs monitor test-camera fix-camera train dashboard stop-all
 
 help:
 > @echo "${BOLD}Доступні команди:${RESET}"
@@ -18,11 +19,18 @@ help:
 > @echo "  ${BLUE}make pc-logs${RESET}         - Потокові логи ПК сервісів"
 > @echo "  ${BLUE}make pc-shell${RESET}        - Відкрити shell у контейнері ПК"
 > @echo "  ${BLUE}make pc-down${RESET}        - Зупинити та видалити сервіси ПК"
+> @echo "  ${BLUE}make pc-train${RESET}        - Навчання PPO на ПК"
+> @echo "  ${BLUE}make pc-export${RESET}       - Експорт PPO моделі в TFLite"
+> @echo "  ${BLUE}make pc-deploy${RESET}       - Копіювання моделі на Orange Pi Zero"
+> @echo "  ${YELLOW}make opi-prepare${RESET}     - Підготовка Orange Pi (swap, очистка)"
+> @echo "  ${YELLOW}make opi-fix-requirements${RESET} - Виправити версію OpenCV у requirements"
+> @echo "  ${YELLOW}make opi-fix-compose${RESET} - Видалити версію з docker-compose"
 > @echo "  ${YELLOW}make opi-build${RESET}       - Збудувати сервіс Orange Pi Zero"
 > @echo "  ${YELLOW}make opi-up${RESET}          - Запустити сервіси Orange Pi у фоні"
 > @echo "  ${YELLOW}make opi-logs${RESET}        - Потокові логи сервісів Orange Pi"
 > @echo "  ${YELLOW}make opi-shell${RESET}       - Відкрити shell у контейнері Orange Pi"
 > @echo "  ${YELLOW}make opi-down${RESET}        - Зупинка та видалення сервісів Orange Pi"
+> @echo "  ${YELLOW}make opi-health${RESET}      - Health check сервісу Orange Pi"
 > @echo "  ${GREEN}make health-all${RESET}      - Перевірка стану всіх сервісів"
 > @echo "  ${GREEN}make monitor-mqtt${RESET}    - Моніторинг топіку greenhouse/# через MQTT"
 > @echo "  ${GREEN}make test-connection${RESET} - Тест з'єднання між ПК та Orange Pi"
@@ -64,10 +72,54 @@ pc-down:
 > @echo "${BLUE}[PC] Зупинка сервісів ПК та очищення контейнерів...${RESET}"
 > docker compose -f docker-compose.pc.yml -f docker-compose.pc.camera.yml down
 
+pc-train:
+> @echo "🖥️ ПК: Запуск PPO навчання..."
+> @echo "   ⏱️  Час: 2-4 години (залежить від GPU)"
+> cd training && python train_ppo.py --total-timesteps 500000
+
+pc-export:
+> @echo "🖥️ ПК: Експорт моделі в TFLite..."
+> cd training && python export_models.py \
+>         --ppo-model models/final_model.zip \
+>         --ppo-output models/ppo_model.tflite
+> @echo "✅ Модель готова в training/models/ppo_model.tflite"
+
+pc-deploy:
+> @echo "🖥️ ПК: Копіювання моделі на Orange Pi Zero..."
+> @read -p "Введіть IP Orange Pi Zero (192.168.1.101): " IP; \
+>         scp training/models/ppo_model.tflite orangepi@$$IP:~/opi-zero-stack/app/model.tflite
+> @echo "✅ Модель скопійована"
+
 # Orange Pi Zero
-opi-build:
-> @echo "${YELLOW}[OPI] Збірка сервісу Orange Pi...${RESET}"
-> docker compose -f docker-compose.orangepi.yml build
+opi-prepare:
+> @echo "🍊 Orange Pi Zero: Підготовка..."
+> @sudo swapoff -a 2>/dev/null || true
+> @sudo fallocate -l 2G /swapfile
+> @sudo chmod 600 /swapfile
+> @sudo mkswap /swapfile
+> @sudo swapon /swapfile
+> @echo "✅ Swap 2GB ввімкнутий"
+> @free -h | grep -i swap
+> @docker compose -f docker-compose.orangepi.yml down
+> @docker system prune -a -f
+
+opi-fix-requirements:
+> @echo "🍊 Orange Pi Zero: Виправлення requirements.txt..."
+> @sed -i 's/opencv-python-headless==4.10.0.84/opencv-python-headless==4.8.0.76/' app/requirements.txt
+> @grep opencv app/requirements.txt
+> @echo "✅ OpenCV версія змінена"
+
+opi-fix-compose:
+> @echo "🍊 Orange Pi Zero: Видалення застарілої версії з docker-compose..."
+> @sed -i '/^version:/d' docker-compose.orangepi.yml
+> @echo "✅ Виправлено docker-compose.orangepi.yml"
+
+opi-build: opi-prepare opi-fix-requirements opi-fix-compose
+> @echo "🍊 Orange Pi Zero: Docker build (20-40 хвилин)..."
+> @echo "   📊 Монітор пам'яті (у іншому терміналі):"
+> @echo "      watch -n 2 'free -h; echo; docker stats --no-stream'"
+> docker compose -f docker-compose.orangepi.yml build --no-cache app --progress=plain 2>&1 | tee build-$$(date +%Y%m%d-%H%M%S).log
+> @echo "✅ Збірка завершена"
 
 opi-up:
 > @echo "${YELLOW}[OPI] Запуск сервісів Orange Pi...${RESET}"
@@ -84,6 +136,11 @@ opi-shell:
 opi-down:
 > @echo "${YELLOW}[OPI] Зупинка сервісів Orange Pi та очищення контейнерів...${RESET}"
 > docker compose -f docker-compose.orangepi.yml down
+
+opi-health:
+> @echo "🍊 Orange Pi Zero: Health check..."
+> curl -s http://localhost:8000/healthz | python -m json.tool
+> @echo "✅ Відповідає нормально"
 
 # Діагностика
 health-all:
