@@ -1,36 +1,36 @@
-# Base image kept on Docker Hub to avoid intermittent TLS handshake issues with ECR.
-ARG PYTHON_BASE=python:3.11-slim-bookworm
-FROM ${PYTHON_BASE}
+FROM python:3.11-slim-bookworm
 
-ENV PYTHONUNBUFFERED=1 \
+# 🔴 КРИТИЧНО ДЛЯ ORANGE PI ZERO:
+# - OPENBLAS мultithreading OFF (тільки 1 ядро)
+# - NUMPY на ARM вже слабкий, без OMP -> краще
+# - TFLite pre-built, не компілюється
+
+ENV PIP_INDEX_URL=https://www.piwheels.org/simple \
+    PIP_EXTRA_INDEX_URL=https://pypi.org/simple \
+    PIP_NO_CACHE_DIR=1 \
     PYTHONDONTWRITEBYTECODE=1 \
-    PIP_NO_CACHE_DIR=1
+    PYTHONUNBUFFERED=1 \
+    OPENBLAS_NUM_THREADS=1 \
+    OMP_NUM_THREADS=1 \
+    ARMV6=1
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      libgfortran5 libopenblas0-pthread ca-certificates \
+      v4l-utils curl \
+    && rm -rf /var/lib/apt/lists/* \
+    && apt-get clean
 
 WORKDIR /app
+COPY requirements-orangepi-zero.txt requirements.txt .
 
-# Встановити OpenCV через apt
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    python3-opencv \
-    libopencv-dev \
-    libglib2.0-0 \
-    libsm6 \
-    libxext6 \
-    libxrender-dev \
-    libgomp1 \
-    libatlas-base-dev \
-    libjpeg-dev \
-    build-essential \
-    python3-dev \
-    && rm -rf /var/lib/apt/lists/*
+# 🟢 КЛЮЧ: --prefer-binary + piwheels (ТІЛЬКИ wheels, НІ компіляції!)
+# timeout=300 (5 хвилин, не 15 сек) - Orange Pi Zero дуже повільна
+RUN pip install --prefer-binary \
+      -r requirements.txt \
+      --timeout=300 \
+      --retries 5
 
-COPY requirements.txt .
-RUN python -m pip install --upgrade pip setuptools wheel
-RUN pip install --prefer-binary numpy==1.26.4
-RUN pip install --prefer-binary -r requirements.txt
-
-COPY . .
-RUN mkdir -p /app/logs /app/models
+COPY main.py model.tflite ./
 
 EXPOSE 8000
-
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["python", "-u", "main.py"]
