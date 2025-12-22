@@ -16,9 +16,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 COPY requirements.txt .
 
-# Copy local wheels if present.
-RUN --mount=type=bind,source=wheels,target=/tmp/wheels,ro,required=false \
-    cp -r /tmp/wheels ./wheels 2>/dev/null || true
+RUN mkdir -p ./wheels
+COPY wheels/ ./wheels/
 
 RUN pip install --prefer-binary --timeout=300 --retries 5 \
     --find-links=./wheels/ \
