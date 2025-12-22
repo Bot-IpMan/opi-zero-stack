@@ -97,9 +97,12 @@ opi-prepare:
 > @sudo fallocate -l 2G /swapfile
 > @sudo chmod 600 /swapfile
 > @sudo mkswap /swapfile
-> @sudo swapon /swapfile
-> @echo "✅ Swap 2GB ввімкнутий"
-> @free -h | grep -i swap
+> @if sudo swapon /swapfile; then \
+>         echo "✅ Swap 2GB ввімкнутий"; \
+> else \
+>         echo "⚠️  Неможливо ввімкнути swap (обмеження середовища). Продовжуємо без swap."; \
+> fi
+> @free -h | grep -i swap || true
 > @docker compose -f docker-compose.orangepi.yml down || true
 > @docker system prune -a -f || true
 
