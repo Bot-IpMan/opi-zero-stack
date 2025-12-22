@@ -100,8 +100,8 @@ opi-prepare:
 > @sudo swapon /swapfile
 > @echo "✅ Swap 2GB ввімкнутий"
 > @free -h | grep -i swap
-> @docker compose -f docker-compose.orangepi.yml down
-> @docker system prune -a -f
+> @docker compose -f docker-compose.orangepi.yml down || true
+> @docker system prune -a -f || true
 
 opi-fix-requirements:
 > @echo "🍊 Orange Pi Zero: Виправлення requirements.txt..."
