@@ -66,7 +66,7 @@ pyserial==3.5
 httpx==0.27.2
 python-multipart==0.0.6
 pillow==10.4.0
-opencv-python-headless==4.10.0.84
+opencv-python-headless==4.8.0.76
 python-json-logger==2.0.7
 waitress==2.1.2
 REQUIREMENTS
