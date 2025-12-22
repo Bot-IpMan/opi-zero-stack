@@ -176,7 +176,7 @@ sudo docker compose up -d mqtt app
 ```bash
 cd pc-llm-service
 source .venv/bin/activate
-uvicorn api:app --host 0.0.0.0 --port 11434
+python -u main.py
 ```
 
 3) **Перевірити зв'язок**
@@ -272,7 +272,7 @@ sequenceDiagram
 Orange Pi переходить у `safe` режим: вимикає насоси, залишає вентилятори на мінімумі та шле алерт у `greenhouse/events`.
 
 **Як швидко змінити порти або хости?**  
-Оновіть `app/.env` і `.env` на ПК, перезапустіть відповідні сервіси Docker/uvicorn.
+Оновіть `app/.env` і `.env` на ПК, перезапустіть відповідні сервіси Docker/LLM.
 
 **Чи потрібна GPU?**  
 Ні, LLM може бути маленькою (Q4), а управління в реальному часі виконує Arduino.
