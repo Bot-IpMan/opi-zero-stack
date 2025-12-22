@@ -525,7 +525,8 @@ async def rl_infer(payload: Dict[str, Any]):
     return {"action": rl_inference(obs).tolist()}
 
 
+# Заміна uvicorn на waitress для слабких систем
 if __name__ == "__main__":
-    import uvicorn
+    from waitress import serve
 
-    uvicorn.run("main:app", host="0.0.0.0", port=8000)
+    serve(app, host="0.0.0.0", port=8000, threads=1, _quiet=True)
