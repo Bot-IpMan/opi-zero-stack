@@ -1,32 +1,28 @@
 FROM python:3.11-slim-bookworm
 
-ENV PIP_NO_CACHE_DIR=1 \
+ENV PIP_INDEX_URL=https://www.piwheels.org/simple \
+    PIP_EXTRA_INDEX_URL=https://pypi.org/simple \
+    PIP_NO_CACHE_DIR=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    OPENBLAS_NUM_THREADS=1
+    OPENBLAS_NUM_THREADS=1 \
+    OMP_NUM_THREADS=1
 
-# Системні lib + numpy з apt (НЕ pip!)
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      libgfortran5 libopenblas0-pthread \
-      python3-numpy \
-      ca-certificates curl v4l-utils \
+      libgfortran5 libopenblas0-pthread python3-numpy ca-certificates \
+      v4l-utils curl \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
-COPY requirements-orangepi-zero.txt requirements.txt .
-COPY wheels/ ./wheels/
+COPY requirements.txt .
 
-# Встановити все з локальних wheels + piwheels
-RUN pip install --prefer-binary \
-      --find-links=./wheels/ \
-      -r requirements.txt \
-      --timeout=300
+# Copy local wheels if present.
+RUN --mount=type=bind,source=wheels,target=/tmp/wheels,ro,required=false \
+    cp -r /tmp/wheels ./wheels 2>/dev/null || true
 
-# Заповнити бінарні залежності
-RUN pip install --no-index --find-links=./wheels/ \
-      tflite_runtime 2>/dev/null || \
-    pip install --prefer-binary \
-      https://github.com/PINTO0309/TensorflowLite-bin/releases/download/v2.14.0.post1/tflite_runtime-2.14.0.post1-cp311-none-linux_armv7l.whl
+RUN pip install --prefer-binary --timeout=300 --retries 5 \
+    --find-links=./wheels/ \
+    -r requirements.txt
 
 COPY main.py model.tflite ./
 
