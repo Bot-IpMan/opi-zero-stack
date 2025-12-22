@@ -45,6 +45,30 @@ curl http://localhost:8000/healthz
 - Контейнер отримує доступ до серійного порту через `SERIAL_DEV` та монтує `app/model.tflite`.
 - Для швидкого доступу до MQTT використовується `network_mode: host`.
 
+### Швидкий порядок запуску (Orange Pi Zero)
+```bash
+# 1. На ПК — скачати TFLite wheel
+bash download-tflite.sh
+
+# 2. На Orange Pi Zero — увімкнути swap
+sudo bash enable-swap.sh
+
+# 3. Перевірити, що swap увімкнено
+free -h
+
+# 4. Внести всі зміни в файли (за раз)
+bash fix-orangepi-zero.sh
+
+# 5. Запустити docker build з моніторингом
+bash docker-build-monitor.sh
+
+# 6. Дочекайтеся завершення (20–45 хвилин)
+
+# 7. Коли готово
+docker compose up -d app
+curl http://localhost:8000/healthz
+```
+
 ## 4) Скопіювати TFLite wheel з ПК (обхід компіляції)
 **На ПК (або скачати):**
 ```bash
