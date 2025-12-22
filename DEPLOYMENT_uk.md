@@ -85,7 +85,37 @@ curl http://localhost:8000/healthz
 - Скрипт створює папку `app/wheels/` локально та копіює wheel у `~/opi-zero-stack/app/wheels/` на Orange Pi.
 - Далі використовуйте wheel під час інсталяції залежностей (див. інструкції у `app/requirements-orangepi-zero.txt`).
 
-## 5) Прошивка Arduino Mega + PCA9685
+## 5) Крок-за-кроком розгортання
+
+### На ПК
+```bash
+# 1. Навчання (2-4 години)
+make pc-train
+
+# 2. Експорт моделі
+make pc-export
+
+# 3. Копіювання на Orange Pi Zero
+make pc-deploy
+```
+
+### На Orange Pi Zero
+```bash
+# 1. Одна команда - ВСЕ виправляє + збирає
+make opi-build
+# ⏱️  ~20-40 хвилин (замість 24+ годин!)
+
+# 2. Запуск
+make opi-up
+
+# 3. Логи
+make opi-logs
+
+# 4. Перевірка
+make opi-health
+```
+
+## 6) Прошивка Arduino Mega + PCA9685
 ```bash
 cd firmware/robotarm
 arduino-cli core install arduino:avr
@@ -96,7 +126,7 @@ arduino-cli upload -p /dev/ttyACM0 --fqbn arduino:avr:mega robotarm.ino
 - Файл `config.h` містить пінмап та параметри сервоприводів.
 - JSON протокол для команд/телеметрії описаний у `ARCHITECTURE_uk.md`.
 
-## 6) Моніторинг та логування
+## 7) Моніторинг та логування
 - Папка `monitoring/` зарезервована під конфігурацію Prometheus/Grafana та експортери.
 - Для перегляду логів контейнерів використовуйте:
 ```bash
@@ -105,7 +135,7 @@ docker compose -f docker-compose.pc.yml logs -f pc-llm-service
 sudo docker compose -f docker-compose.orangepi.yml logs -f app mqttc
 ```
 
-## 7) Тести
+## 8) Тести
 ```bash
 # Локальні unit/integration тести
 pytest -q
@@ -114,7 +144,7 @@ pytest -q
 docker compose -f tests/docker-compose.test.yml up --build --abort-on-container-exit
 ```
 
-## 8) Типові топіки MQTT
+## 9) Типові топіки MQTT
 - `greenhouse/sensors/#` — телеметрія з Arduino/OPI.
 - `greenhouse/cmd/actuators` — команди на актуатори (JSON payload).
 - `greenhouse/llm/goals` — цілі від LLM/користувача.
