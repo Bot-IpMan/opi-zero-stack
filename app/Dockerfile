@@ -9,6 +9,12 @@ ENV PIP_INDEX_URL=https://www.piwheels.org/simple \
     OMP_NUM_THREADS=1
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
+      libgl1 \
+      libglib2.0-0t64 \
+      libsm6 \
+      libxext6 \
+      libxrender-dev \
+      libgomp1 \
       libgfortran5 libopenblas0-pthread libblas3 liblapack3 \
       build-essential \
       cmake \
@@ -21,9 +27,11 @@ COPY requirements.txt .
 RUN mkdir -p ./wheels
 COPY wheels/ ./wheels/
 
-RUN pip install --prefer-binary --timeout=300 --retries 5 \
+RUN pip install --only-binary=:all: --timeout=300 --retries 5 \
     --find-links=./wheels/ \
     -r requirements.txt
+
+RUN python3 -c "import cv2; print(f'OpenCV {cv2.__version__} OK')"
 
 COPY main.py model.tflite ./
 
