@@ -27,4 +27,4 @@ RUN python3 -c "import cv2; print(f'OpenCV {cv2.__version__} OK')"
 
 COPY . .
 
-CMD ["python"]
+CMD ["python", "yolo_detector.py"]
