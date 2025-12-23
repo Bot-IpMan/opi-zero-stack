@@ -24,14 +24,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 COPY requirements.txt .
 
-RUN mkdir -p ./wheels
-COPY wheels/ ./wheels/
-
 RUN pip install --only-binary=:all: --timeout=300 --retries 5 \
-    --find-links=./wheels/ \
     -r requirements.txt
 
-RUN python3 -c "import cv2; print(f'OpenCV {cv2.__version__} OK')"
+RUN python3 -c "import tflite_runtime; print('tflite_runtime OK')"
 
 COPY main.py model.tflite ./
 
