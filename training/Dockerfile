@@ -1,5 +1,9 @@
 FROM python:3.10-slim
 
+ENV PIP_INDEX_URL=https://www.piwheels.org/simple \
+    PIP_EXTRA_INDEX_URL=https://pypi.org/simple \
+    PIP_NO_CACHE_DIR=1
+
 WORKDIR /training
 
 # Встановлення системних залежностей
