@@ -531,17 +531,17 @@ if __name__ == "__main__":
     import os
     from waitress import serve
 
-    # Забороняємо багатопоточність (для Orange Pi Zero)
+    # Забороняємо багатопоточність (для Orange Pi Zero 512MB RAM)
     os.environ["OMP_NUM_THREADS"] = "1"
     os.environ["OPENBLAS_NUM_THREADS"] = "1"
 
-    logger.info("🚀 Запуск RobotController на waitress")
-    logger.info("📍 Слухаю на http://0.0.0.0:8000")
+    logger.info("🚀 RobotController запускається на waitress (Orange Pi Zero)")
+    logger.info("🌐 Слухаю на http://0.0.0.0:8000")
 
     serve(
         app,
         host="0.0.0.0",
         port=8000,
         threads=1,
-        _quiet=True,
+        _quiet=True
     )
