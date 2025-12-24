@@ -24,7 +24,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 COPY requirements.txt .
 
-RUN pip install --only-binary=:all: --timeout=300 --retries 5 \
+RUN pip install --prefer-binary --timeout=600 --retries 5 \
     -r requirements.txt
 
 RUN python3 -c "import tflite_runtime; print('tflite_runtime OK')"
