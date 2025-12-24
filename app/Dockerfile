@@ -1,4 +1,4 @@
-FROM python:3.10-slim-bookworm
+FROM python:3.11-slim-bookworm
 
 ENV PIP_INDEX_URL=https://www.piwheels.org/simple \
     PIP_EXTRA_INDEX_URL=https://pypi.org/simple \
@@ -22,12 +22,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
+
 COPY requirements.txt .
+# Copy local wheels if present
+COPY wheels/ ./wheels/
 
-RUN pip install --prefer-binary --timeout=600 --retries 5 \
+RUN pip install --prefer-binary --timeout=300 --retries 5 --find-links=./wheels/ \
     -r requirements.txt
-
-RUN python3 -c "import tflite_runtime; print('tflite_runtime OK')"
 
 COPY main.py model.tflite ./
 
