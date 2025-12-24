@@ -1,4 +1,4 @@
-FROM python:3.11-slim-bookworm
+FROM python:3.10-slim-bookworm
 
 ENV PIP_INDEX_URL=https://www.piwheels.org/simple \
     PIP_EXTRA_INDEX_URL=https://pypi.org/simple \
