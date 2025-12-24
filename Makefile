@@ -30,7 +30,11 @@ opi-prepare:
 	@sudo mkswap /swapfile 2>/dev/null || true
 	@sudo swapon /swapfile 2>/dev/null || true
 	@echo "✅ Swap 2GB включено"
-	@free -h | grep -i swap
+	@if command -v free >/dev/null 2>&1; then \
+		free -h 2>/dev/null | grep -i swap || true; \
+	else \
+		echo "ℹ️ free command недоступна"; \
+	fi
 
 opi-fix-requirements:
 	@echo "🍊 Orange Pi Zero: Виправлення requirements.txt..."
