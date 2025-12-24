@@ -1,3 +1,4 @@
+# Docker Compose V2 no longer requires the deprecated top-level "version" key.
 services:
   app:
     build:
