@@ -4,3 +4,4 @@ paho-mqtt==1.6.1
 pyserial==3.5
 python-multipart==0.0.6
 waitress==2.1.2
+opencv-python-headless==4.8.0.76
