@@ -1,6 +1,6 @@
 numpy
 paho-mqtt
 pyyaml
-pillow
+pillow>=10.0.0
 pydantic
 opencv-python-headless>=4.8.0
