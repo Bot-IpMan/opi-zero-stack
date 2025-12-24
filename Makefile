@@ -38,9 +38,13 @@ opi-prepare:
 
 opi-fix-requirements:
 	@echo "🍊 Orange Pi Zero: Виправлення requirements.txt..."
-	@sed -i 's/opencv-python-headless==4.10.0.84/opencv-python-headless==4.8.0.76/g' app/requirements.txt
-	@grep opencv app/requirements.txt
-	@echo "✅ OpenCV версія змінена"
+	@if grep -q "opencv-python-headless" app/requirements.txt; then \
+		sed -i 's/opencv-python-headless==[^ ]\+/opencv-python-headless==4.8.0.76/g' app/requirements.txt; \
+	else \
+		echo "opencv-python-headless==4.8.0.76" >> app/requirements.txt; \
+	fi
+	@grep opencv app/requirements.txt || true
+	@echo "✅ OpenCV версія оновлена або додана"
 
 opi-fix-opencv:
 	@echo "🍊 Orange Pi Zero: Встановлення build-essential для OpenCV..."
