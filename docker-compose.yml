@@ -8,10 +8,11 @@ services:
       - ./mosquitto/config:/mosquitto/config
     restart: unless-stopped
 
-  robot-app:
+  app:
     build: ./app
-    mem_limit: "120m"
-    memswap_limit: "256m"
+    container_name: robot-app
+    mem_limit: "150m"
+    memswap_limit: "300m"
     pids_limit: 128
     cpus: "1"
     devices:
@@ -25,19 +26,9 @@ services:
       - LLM_URL=http://192.168.1.152:8080
       - CAMERA_DEVICE=/dev/video0
       - SERIAL_PORT=/dev/ttyACM0
+      - DUMMY_MODEL=0
     ports:
       - "8000:8000"
-    depends_on:
-      - mqtt
-    restart: unless-stopped
-
-  pc-llm-service:
-    build: ./pc-llm-service
-    environment:
-      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
-      - MQTT_BROKER=mqtt
-    ports:
-      - "8080:8080"
     depends_on:
       - mqtt
     restart: unless-stopped
