@@ -9,26 +9,47 @@ services:
     restart: unless-stopped
 
   app:
-    build: ./app
+    build:
+      context: ./app
+      dockerfile: Dockerfile
     container_name: robot-app
+    depends_on:
+      mqtt:
+        condition: service_started
+    environment:
+      SERIAL_DEV: /dev/ttyACM0
+      MQTT_HOST: mqtt
+      MQTT_PORT: 1883
+      MODEL_PATH: /app/model.tflite
+      DUMMY_MODEL: "0"
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./app/model.tflite:/app/model.tflite:ro
+    devices:
+      - "/dev/serial/by-id/usb-Arduino__www.arduino.cc__0042_*:/dev/ttyACM0"
+    device_cgroup_rules:
+      - "c 166:* rmw"
+    group_add:
+      - "20"
+    restart: unless-stopped
     mem_limit: "150m"
     memswap_limit: "300m"
     pids_limit: 128
     cpus: "1"
-    devices:
-      - /dev/video0:/dev/video0
-      - /dev/ttyACM0:/dev/ttyACM0
-    group_add:
-      - video
-      - dialout
-    environment:
-      - MQTT_BROKER=mqtt
-      - LLM_URL=http://192.168.1.152:8080
-      - CAMERA_DEVICE=/dev/video0
-      - SERIAL_PORT=/dev/ttyACM0
-      - DUMMY_MODEL=0
-    ports:
-      - "8000:8000"
-    depends_on:
-      - mqtt
-    restart: unless-stopped
+    logging:
+      driver: local
+      options:
+        max-size: "5m"
+        max-file: "2"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/healthz || exit 1"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+    networks:
+      - robotarm
+
+networks:
+  robotarm:
+    driver: bridge
