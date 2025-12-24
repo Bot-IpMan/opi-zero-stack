@@ -24,7 +24,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 
 COPY requirements.txt .
-# Copy local wheels if present
+# Copy local wheels (e.g., tflite_runtime) if present so installation succeeds
+# without importing packages before they are available.
 COPY wheels/ ./wheels/
 
 RUN pip install --prefer-binary --timeout=300 --retries 5 --find-links=./wheels/ \
