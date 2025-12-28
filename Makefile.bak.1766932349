@@ -1,13 +1,5 @@
-.PHONY: train pc-export pc-deploy pc-build pc-up pc-logs pc-shell pc-down \
-	opi-prepare opi-fix-requirements opi-fix-opencv opi-build opi-up opi-logs opi-health opi-shell opi-down
-
-PC_COMPOSE := docker-compose.pc.yml
-PC_CAMERA_COMPOSE := docker-compose.pc.camera.yml
-CAMERA_DEVICE ?= /dev/video0
-
-OPI_COMPOSE := docker-compose.yml
-OPI_NO_SERIAL_COMPOSE := docker-compose.noserial.yml
-SERIAL_DEV ?= /dev/ttyACM0
+.PHONY: train pc-export pc-deploy \
+        opi-prepare opi-fix-requirements opi-fix-opencv opi-build opi-up opi-logs opi-health opi-down
 
 # ========== PC (НАВЧАННЯ) ==========
 
@@ -18,8 +10,8 @@ train:
 pc-export:
 	@echo "🖥️ ПК: Експорт моделі в TFLite..."
 	docker compose -f docker-compose.train.yml run --rm training python export_models.py \
-	        --ppo-model training/models/final_model.zip \
-	        --ppo-output training/models/ppo_model.tflite
+		--ppo-model training/models/final_model.zip \
+		--ppo-output training/models/ppo_model.tflite
 	@echo "✅ Модель експортована"
 
 pc-deploy:
@@ -27,34 +19,6 @@ pc-deploy:
 	@read -p "Введіть IP Orange Pi Zero (192.168.1.101): " IP; \
 	scp training/models/ppo_model.tflite orangepi@$$IP:~/opi-zero-stack/app/model.tflite
 	@echo "✅ Готово"
-
-pc-build:
-	@echo "🖥️ ПК: Збірка Docker-образів для локального середовища..."
-	docker compose -f docker-compose.pc.yml build
-	@echo "✅ Збірка завершена"
-
-pc-up:
-	@echo "🖥️ ПК: Запуск LLM сервісу..."
-	@CAMERA_DEV="$(CAMERA_DEVICE)"; \
-	PROFILE_FLAGS=""; \
-	[ -n "$(WITH_MQTT)" ] && PROFILE_FLAGS="--profile with-mqtt"; \
-	if [ -e "$$CAMERA_DEV" ]; then \
-		echo "📷 Камера знайдена ($$CAMERA_DEV), проброшую у контейнер"; \
-		docker compose -f $(PC_COMPOSE) -f $(PC_CAMERA_COMPOSE) $$PROFILE_FLAGS up -d pc-llm-service; \
-	else \
-		echo "⚠️ Камера не знайдена ($$CAMERA_DEV), запускаю без пробросу"; \
-		docker compose -f $(PC_COMPOSE) $$PROFILE_FLAGS up -d pc-llm-service; \
-	fi
-	@echo "✅ ПК: LLM сервіс запущено"
-
-pc-logs:
-	docker compose -f $(PC_COMPOSE) logs -f pc-llm-service
-
-pc-shell:
-	docker compose -f $(PC_COMPOSE) exec pc-llm-service /bin/bash
-
-pc-down:
-	docker compose -f $(PC_COMPOSE) down
 
 # ========== ORANGE PI ZERO ==========
 
@@ -73,6 +37,13 @@ opi-prepare:
 	fi
 
 opi-fix-requirements:
+	@echo "🍊 Orange Pi Zero: Виправлення requirements.txt..."
+	@if grep -q "opencv-python-headless" app/requirements.txt; then \
+		sed -i 's/opencv-python-headless==[^ ]\+/opencv-python-headless==4.8.0.76/g' app/requirements.txt; \
+	else \
+		echo "opencv-python-headless==4.8.0.76" >> app/requirements.txt; \
+	fi
+	@grep opencv app/requirements.txt || true
 	@echo "✅ OpenCV версія оновлена або додана"
 
 opi-fix-opencv:
@@ -90,18 +61,9 @@ opi-build: opi-prepare opi-fix-requirements
 
 opi-up:
 	@echo "🍊 Orange Pi Zero: Запуск сервісу..."
-	@SERIAL_PATH="$(SERIAL_DEV)"; \
-		COMPOSE_ARGS="-f $(OPI_COMPOSE)"; \
-		if [ -e "$$SERIAL_PATH" ]; then \
-			echo "🔌 Serial device знайдено ($$SERIAL_PATH), проброшую у контейнер"; \
-		else \
-			echo "⚠️ Serial device не знайдено ($$SERIAL_PATH), запускаю без пробросу"; \
-			COMPOSE_ARGS="$$COMPOSE_ARGS -f $(OPI_NO_SERIAL_COMPOSE)"; \
-			SERIAL_PATH=""; \
-		fi; \
-		SERIAL_DEV="$$SERIAL_PATH" docker compose $$COMPOSE_ARGS up -d mqtt app; \
-		sleep 2; \
-		docker compose $$COMPOSE_ARGS logs app
+	docker compose -f docker-compose.yml up -d mqtt app
+	@sleep 2
+	docker compose -f docker-compose.yml logs app
 
 opi-logs:
 	docker compose -f docker-compose.yml logs -f app
@@ -109,9 +71,6 @@ opi-logs:
 opi-health:
 	@echo "🍊 Orange Pi Zero: Health check..."
 	curl -s http://localhost:8000/healthz | python -m json.tool
-
-opi-shell:
-	docker compose -f docker-compose.yml exec app /bin/bash
 
 opi-down:
 	@echo "🍊 Orange Pi Zero: Зупинення..."
@@ -127,11 +86,6 @@ help:
 	@echo "  make train        - Запуск PPO навчання"
 	@echo "  make pc-export    - Експорт моделі в TFLite"
 	@echo "  make pc-deploy    - Копіювання на Orange Pi Zero"
-	@echo "  make pc-build     - Збірка Docker образів для ПК"
-	@echo "  make pc-up        - Запустити LLM сервіс на ПК (CAMERA_DEVICE, WITH_MQTT=1)"
-	@echo "  make pc-logs      - Логи LLM сервісу"
-	@echo "  make pc-shell     - Shell всередині pc-llm-service"
-	@echo "  make pc-down      - Зупинити LLM сервіс та MQTT (якщо було запущено)"
 	@echo ""
 	@echo "Orange Pi Zero (запуск):"
 	@echo "  make opi-prepare        - Включити swap"
@@ -140,13 +94,9 @@ help:
 	@echo "  make opi-up             - Запустити сервіс"
 	@echo "  make opi-logs           - Показати логи"
 	@echo "  make opi-health         - Health check"
-	@echo "  make opi-shell          - Shell у контейнері app"
 	@echo "  make opi-down           - Зупинити все"
 
 fast-install-deps:
-	python3 -m pip install --break-system-packages --upgrade pip setuptools wheel
-	python3 -m pip install --break-system-packages --prefer-binary opencv-python-headless || true
-
-fast-install-deps:
-	python3 -m pip install --break-system-packages --upgrade pip setuptools wheel
-	python3 -m pip install --break-system-packages --prefer-binary opencv-python-headless || true
+	python -m pip install --upgrade pip setuptools wheel
+	python -m pip install --prefer-binary --only-binary=:all: -r requirements.txt
+	python -m pip install --prefer-binary opencv-python-headless || true
