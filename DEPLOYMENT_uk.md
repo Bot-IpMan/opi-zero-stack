@@ -37,6 +37,7 @@ curl http://localhost:8080/system_status
 # 1. Підготуйте змінні середовища
 cp .env.example app/.env
 sed -i 's/MQTT_HOST=.*/MQTT_HOST=192.168.1.220/' app/.env  # IP брокера/ПК
+# Якщо Arduino з'являється як інший пристрій (наприклад, /dev/ttyUSB0), оновіть SERIAL_DEV у app/.env
 
 # 2. Запустіть застосунок і MQTT клієнт (host network для мінімальної затримки)
 docker compose -f docker-compose.orangepi.yml up -d app mqttc

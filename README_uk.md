@@ -95,6 +95,7 @@ opi-zero-stack/
 - Логи: `make opi-logs`
 - Shell: `make opi-shell`
 - Зупинка: `make opi-down`
+- Якщо Arduino з'являється як інший порт (наприклад, `/dev/ttyUSB0`), задайте `SERIAL_DEV=/dev/ttyUSB0 make opi-up`.
 
 > Підказка: `make help` покаже повний список команд, включно з діагностикою та моніторингом.
 
