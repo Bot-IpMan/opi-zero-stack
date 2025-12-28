@@ -1,0 +1,8 @@
+services:
+  app:
+    # Allow running without a physical serial device attached.
+    environment:
+      SERIAL_DEV: ""
+    devices: []
+    device_cgroup_rules: []
+    group_add: []

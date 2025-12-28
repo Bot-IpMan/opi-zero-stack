@@ -17,7 +17,7 @@ services:
       mqtt:
         condition: service_started
     environment:
-      SERIAL_DEV: /dev/ttyACM0
+      SERIAL_DEV: ${SERIAL_DEV:-/dev/ttyACM0}
       MQTT_HOST: mqtt
       MQTT_PORT: 1883
       MODEL_PATH: /app/model.tflite
@@ -27,7 +27,7 @@ services:
     volumes:
       - ./app/model.tflite:/app/model.tflite:ro
     devices:
-      - "/dev/ttyACM0:/dev/ttyACM0"
+      - "${SERIAL_DEV:-/dev/ttyACM0}:${SERIAL_DEV:-/dev/ttyACM0}"
     device_cgroup_rules:
       - "c 166:* rmw"
     group_add:
