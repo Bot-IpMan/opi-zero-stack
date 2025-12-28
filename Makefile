@@ -1,5 +1,9 @@
-.PHONY: train pc-export pc-deploy pc-build \
-	opi-prepare opi-fix-requirements opi-fix-opencv opi-build opi-up opi-logs opi-health opi-down
+.PHONY: train pc-export pc-deploy pc-build pc-up pc-logs pc-shell pc-down \
+	opi-prepare opi-fix-requirements opi-fix-opencv opi-build opi-up opi-logs opi-health opi-shell opi-down
+
+PC_COMPOSE := docker-compose.pc.yml
+PC_CAMERA_COMPOSE := docker-compose.pc.camera.yml
+CAMERA_DEVICE ?= /dev/video0
 
 # ========== PC (НАВЧАННЯ) ==========
 
@@ -24,6 +28,29 @@ pc-build:
 	@echo "🖥️ ПК: Збірка Docker-образів для локального середовища..."
 	docker compose -f docker-compose.pc.yml build
 	@echo "✅ Збірка завершена"
+
+pc-up:
+	@echo "🖥️ ПК: Запуск LLM сервісу..."
+	@CAMERA_DEV="$(CAMERA_DEVICE)"; \
+	PROFILE_FLAGS=""; \
+	[ -n "$(WITH_MQTT)" ] && PROFILE_FLAGS="--profile with-mqtt"; \
+	if [ -e "$$CAMERA_DEV" ]; then \
+		echo "📷 Камера знайдена ($$CAMERA_DEV), проброшую у контейнер"; \
+		docker compose -f $(PC_COMPOSE) -f $(PC_CAMERA_COMPOSE) $$PROFILE_FLAGS up -d pc-llm-service; \
+	else \
+		echo "⚠️ Камера не знайдена ($$CAMERA_DEV), запускаю без пробросу"; \
+		docker compose -f $(PC_COMPOSE) $$PROFILE_FLAGS up -d pc-llm-service; \
+	fi
+	@echo "✅ ПК: LLM сервіс запущено"
+
+pc-logs:
+	docker compose -f $(PC_COMPOSE) logs -f pc-llm-service
+
+pc-shell:
+	docker compose -f $(PC_COMPOSE) exec pc-llm-service /bin/bash
+
+pc-down:
+	docker compose -f $(PC_COMPOSE) down
 
 # ========== ORANGE PI ZERO ==========
 
@@ -77,6 +104,9 @@ opi-health:
 	@echo "🍊 Orange Pi Zero: Health check..."
 	curl -s http://localhost:8000/healthz | python -m json.tool
 
+opi-shell:
+	docker compose -f docker-compose.yml exec app /bin/bash
+
 opi-down:
 	@echo "🍊 Orange Pi Zero: Зупинення..."
 	docker compose -f docker-compose.yml down
@@ -92,6 +122,10 @@ help:
 	@echo "  make pc-export    - Експорт моделі в TFLite"
 	@echo "  make pc-deploy    - Копіювання на Orange Pi Zero"
 	@echo "  make pc-build     - Збірка Docker образів для ПК"
+	@echo "  make pc-up        - Запустити LLM сервіс на ПК (CAMERA_DEVICE, WITH_MQTT=1)"
+	@echo "  make pc-logs      - Логи LLM сервісу"
+	@echo "  make pc-shell     - Shell всередині pc-llm-service"
+	@echo "  make pc-down      - Зупинити LLM сервіс та MQTT (якщо було запущено)"
 	@echo ""
 	@echo "Orange Pi Zero (запуск):"
 	@echo "  make opi-prepare        - Включити swap"
@@ -100,4 +134,5 @@ help:
 	@echo "  make opi-up             - Запустити сервіс"
 	@echo "  make opi-logs           - Показати логи"
 	@echo "  make opi-health         - Health check"
+	@echo "  make opi-shell          - Shell у контейнері app"
 	@echo "  make opi-down           - Зупинити все"
