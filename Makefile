@@ -1,5 +1,5 @@
 .PHONY: train pc-export pc-deploy pc-build \
-        opi-prepare opi-fix-requirements opi-fix-opencv opi-build opi-up opi-logs opi-health opi-down
+	opi-prepare opi-fix-requirements opi-fix-opencv opi-build opi-up opi-logs opi-health opi-down
 
 # ========== PC (НАВЧАННЯ) ==========
 
@@ -8,22 +8,22 @@ train:
 	docker compose -f docker-compose.train.yml up training
 
 pc-export:
-        @echo "🖥️ ПК: Експорт моделі в TFLite..."
-        docker compose -f docker-compose.train.yml run --rm training python export_models.py \
-                --ppo-model training/models/final_model.zip \
-                --ppo-output training/models/ppo_model.tflite
-        @echo "✅ Модель експортована"
+	@echo "🖥️ ПК: Експорт моделі в TFLite..."
+	docker compose -f docker-compose.train.yml run --rm training python export_models.py \
+	        --ppo-model training/models/final_model.zip \
+	        --ppo-output training/models/ppo_model.tflite
+	@echo "✅ Модель експортована"
 
 pc-deploy:
-        @echo "🖥️ ПК: Копіювання на Orange Pi Zero..."
-        @read -p "Введіть IP Orange Pi Zero (192.168.1.101): " IP; \
-        scp training/models/ppo_model.tflite orangepi@$$IP:~/opi-zero-stack/app/model.tflite
-        @echo "✅ Готово"
+	@echo "🖥️ ПК: Копіювання на Orange Pi Zero..."
+	@read -p "Введіть IP Orange Pi Zero (192.168.1.101): " IP; \
+	scp training/models/ppo_model.tflite orangepi@$$IP:~/opi-zero-stack/app/model.tflite
+	@echo "✅ Готово"
 
 pc-build:
-        @echo "🖥️ ПК: Збірка Docker-образів для локального середовища..."
-        docker compose -f docker-compose.pc.yml build
-        @echo "✅ Збірка завершена"
+	@echo "🖥️ ПК: Збірка Docker-образів для локального середовища..."
+	docker compose -f docker-compose.pc.yml build
+	@echo "✅ Збірка завершена"
 
 # ========== ORANGE PI ZERO ==========
 
@@ -85,17 +85,17 @@ opi-down:
 
 .PHONY: help
 help:
-        @echo "=== RELEASE 0.0.2 COMMANDS ==="
-        @echo ""
-        @echo "PC (навчання):"
-        @echo "  make train        - Запуск PPO навчання"
-        @echo "  make pc-export    - Експорт моделі в TFLite"
-        @echo "  make pc-deploy    - Копіювання на Orange Pi Zero"
-        @echo "  make pc-build     - Збірка Docker образів для ПК"
-        @echo ""
-        @echo "Orange Pi Zero (запуск):"
-        @echo "  make opi-prepare        - Включити swap"
-        @echo "  make opi-fix-requirements - Виправити requirements"
+	@echo "=== RELEASE 0.0.2 COMMANDS ==="
+	@echo ""
+	@echo "PC (навчання):"
+	@echo "  make train        - Запуск PPO навчання"
+	@echo "  make pc-export    - Експорт моделі в TFLite"
+	@echo "  make pc-deploy    - Копіювання на Orange Pi Zero"
+	@echo "  make pc-build     - Збірка Docker образів для ПК"
+	@echo ""
+	@echo "Orange Pi Zero (запуск):"
+	@echo "  make opi-prepare        - Включити swap"
+	@echo "  make opi-fix-requirements - Виправити requirements"
 	@echo "  make opi-build          - Повна збірка (20-40 хв)"
 	@echo "  make opi-up             - Запустити сервіс"
 	@echo "  make opi-logs           - Показати логи"
