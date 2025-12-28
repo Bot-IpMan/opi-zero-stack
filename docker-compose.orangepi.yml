@@ -24,7 +24,7 @@ services:
       - ./app/model.tflite:/app/model.tflite:ro
 
     devices:
-      - "/dev/serial/by-id/usb-Arduino__www.arduino.cc__0042_*:/dev/ttyACM0"
+      - "/dev/ttyACM0:/dev/ttyACM0"
 
     device_cgroup_rules:
       - "c 166:* rmw"
