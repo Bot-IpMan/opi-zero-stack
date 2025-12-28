@@ -5,6 +5,10 @@ PC_COMPOSE := docker-compose.pc.yml
 PC_CAMERA_COMPOSE := docker-compose.pc.camera.yml
 CAMERA_DEVICE ?= /dev/video0
 
+OPI_COMPOSE := docker-compose.yml
+OPI_NO_SERIAL_COMPOSE := docker-compose.noserial.yml
+SERIAL_DEV ?= /dev/ttyACM0
+
 # ========== PC (НАВЧАННЯ) ==========
 
 train:
@@ -93,9 +97,18 @@ opi-build: opi-prepare opi-fix-requirements
 
 opi-up:
 	@echo "🍊 Orange Pi Zero: Запуск сервісу..."
-	docker compose -f docker-compose.yml up -d mqtt app
-	@sleep 2
-	docker compose -f docker-compose.yml logs app
+	@SERIAL_PATH="$(SERIAL_DEV)"; \
+		COMPOSE_ARGS="-f $(OPI_COMPOSE)"; \
+		if [ -e "$$SERIAL_PATH" ]; then \
+			echo "🔌 Serial device знайдено ($$SERIAL_PATH), проброшую у контейнер"; \
+		else \
+			echo "⚠️ Serial device не знайдено ($$SERIAL_PATH), запускаю без пробросу"; \
+			COMPOSE_ARGS="$$COMPOSE_ARGS -f $(OPI_NO_SERIAL_COMPOSE)"; \
+			SERIAL_PATH=""; \
+		fi; \
+		SERIAL_DEV="$$SERIAL_PATH" docker compose $$COMPOSE_ARGS up -d mqtt app; \
+		sleep 2; \
+		docker compose $$COMPOSE_ARGS logs app
 
 opi-logs:
 	docker compose -f docker-compose.yml logs -f app
