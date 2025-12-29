@@ -15,6 +15,7 @@ ENV PIP_INDEX_URL=https://www.piwheels.org/simple \
 #    (libgfortran5, libopenblas0-pthread — це прямо рекомендація під NumPy на ARM; v4l-utils дає v4l2-ctl)
 RUN apt-get update && apt-get install -y --no-install-recommends \
       libgfortran5 libopenblas0-pthread ca-certificates \
+      libglib2.0-0 libgl1 \
       v4l-utils curl \
     && rm -rf /var/lib/apt/lists/*
 
