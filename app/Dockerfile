@@ -25,6 +25,12 @@ COPY requirements.txt .
 # 3) Забороняємо збірку з сирців — тільки wheels (на ARM це критично)
 RUN pip install --only-binary=:all: -r requirements.txt
 
+# 3a) Гарантуємо наявність cv2 (щоб не ловити ModuleNotFoundError під час запуску)
+RUN python - <<'PY'
+import cv2
+print(f"OpenCV OK: {cv2.__version__}")
+PY
+
 # 4) Код і мінімальна FP32-модель TFLite (TFL3)
 COPY main.py model.tflite ./
 
