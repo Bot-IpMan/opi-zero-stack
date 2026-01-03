@@ -1,45 +1,34 @@
 FROM python:3.11-slim
 
-# Змінні середовища
-ENV PIP_INDEX_URL=https://www.piwheels.org/simple \
-    PIP_EXTRA_INDEX_URL=https://pypi.org/simple \
+ENV PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
-    PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1 \
-    OPENBLAS_NUM_THREADS=1 \
-    OMP_NUM_THREADS=1
+    PIP_INDEX_URL=https://www.piwheels.org/simple \
+    PIP_EXTRA_INDEX_URL=https://pypi.org/simple
 
-# Системні залежності
+# Мінімальні системні залежності
 RUN apt-get update && apt-get install -y --no-install-recommends \
+      curl \
       libgfortran5 \
       libopenblas0-pthread \
-      ca-certificates \
-      libglib2.0-0t64 \
-      libgl1 \
-      libsm6 \
-      libxext6 \
-      libxrender-dev \
-      v4l-utils \
-      curl \
-      gcc \
-      g++ \
-      python3-dev \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 COPY requirements.txt .
 
-# Встановлення Python пакетів (БЕЗ --only-binary для гнучкості на ARM)
+# Встановлення пакетів з piwheels (готові wheels для ARM)
 RUN pip install --upgrade pip && \
     pip install -r requirements.txt
 
-# Перевірка що все встановилось
-RUN python -c "import tflite_runtime; print('TFLite OK:', tflite_runtime.__version__)" && \
-    python -c "import cv2; print('OpenCV OK:', cv2.__version__)" && \
-    python -c "import numpy; print('NumPy OK:', numpy.__version__)"
+# Перевірка критичних залежностей
+RUN python -c "import tflite_runtime; print('✅ TFLite OK')" && \
+    python -c "import numpy; print('✅ NumPy OK')" && \
+    python -c "import serial; print('✅ Serial OK')" && \
+    python -c "import fastapi; print('✅ FastAPI OK')"
 
-# Код і модель
 COPY main.py model.tflite ./
 
 EXPOSE 8000
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+  CMD curl -f http://localhost:8000/healthz || exit 1
+
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]
