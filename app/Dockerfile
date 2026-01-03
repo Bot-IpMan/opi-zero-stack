@@ -14,7 +14,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       libgfortran5 \
       libopenblas0-pthread \
       ca-certificates \
-      libglib2.0-0 \
+      libglib2.0-0t64 \
       libgl1 \
       libsm6 \
       libxext6 \
