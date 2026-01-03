@@ -1,37 +1,44 @@
-# app/Dockerfile
 FROM python:3.11-slim
 
-# 1) Готові ARMv7-вheels з piwheels + fallback на PyPI
+# Змінні середовища
 ENV PIP_INDEX_URL=https://www.piwheels.org/simple \
     PIP_EXTRA_INDEX_URL=https://pypi.org/simple \
     PIP_NO_CACHE_DIR=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    # приглушити багатопоточність BLAS на слабкому CPU
     OPENBLAS_NUM_THREADS=1 \
     OMP_NUM_THREADS=1
 
-# 2) Рантайм-ліби для NumPy + утиліти для камери та healthcheck
-#    (libgfortran5, libopenblas0-pthread — це прямо рекомендація під NumPy на ARM; v4l-utils дає v4l2-ctl)
+# Системні залежності
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      libgfortran5 libopenblas0-pthread ca-certificates \
-      libglib2.0-0 libgl1 python3-opencv \
-      v4l-utils curl \
+      libgfortran5 \
+      libopenblas0-pthread \
+      ca-certificates \
+      libglib2.0-0 \
+      libgl1 \
+      libsm6 \
+      libxext6 \
+      libxrender-dev \
+      v4l-utils \
+      curl \
+      gcc \
+      g++ \
+      python3-dev \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 COPY requirements.txt .
 
-# 3) Забороняємо збірку з сирців — тільки wheels (на ARM це критично)
-RUN pip install --only-binary=:all: -r requirements.txt
+# Встановлення Python пакетів (БЕЗ --only-binary для гнучкості на ARM)
+RUN pip install --upgrade pip && \
+    pip install -r requirements.txt
 
-# 3a) Гарантуємо наявність cv2 (щоб не ловити ModuleNotFoundError під час запуску)
-RUN python - <<'PY'
-import cv2
-print(f"OpenCV OK: {cv2.__version__}")
-PY
+# Перевірка що все встановилось
+RUN python -c "import tflite_runtime; print('TFLite OK:', tflite_runtime.__version__)" && \
+    python -c "import cv2; print('OpenCV OK:', cv2.__version__)" && \
+    python -c "import numpy; print('NumPy OK:', numpy.__version__)"
 
-# 4) Код і мінімальна FP32-модель TFLite (TFL3)
+# Код і модель
 COPY main.py model.tflite ./
 
 EXPOSE 8000
