@@ -15,7 +15,7 @@ services:
 
     environment:
       SERIAL_DEV: /dev/ttyACM0
-      DUMMY_MODEL: "0"
+      DUMMY_MODEL: "1"
 
     ports:
       - "8000:8000"
