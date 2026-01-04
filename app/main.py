@@ -29,6 +29,39 @@ DUMMY_MODEL = os.getenv("DUMMY_MODEL", "0") == "1"
 
 app = FastAPI(title="Robot Arm RL Controller")
 
+
+class DummyInterpreter:
+    """Проста модель-заглушка для тестування без реальної TFLite моделі."""
+
+    def __init__(self, input_shape: tuple[int, ...] = (1, 9), output_shape: tuple[int, ...] = (1, 6)):
+        self.input_details = [{"index": 0, "shape": np.array(input_shape, dtype=np.int32)}]
+        self.output_details = [{"index": 0, "shape": np.array(output_shape, dtype=np.int32)}]
+        self._input = np.zeros(input_shape, dtype=np.float32)
+        self._output = np.zeros(output_shape, dtype=np.float32)
+
+    def allocate_tensors(self):
+        return None
+
+    def get_input_details(self):
+        return self.input_details
+
+    def get_output_details(self):
+        return self.output_details
+
+    def set_tensor(self, index, value):
+        self._input = np.array(value, dtype=np.float32)
+
+    def invoke(self):
+        # Вихід – віднормовані перші 6 значень
+        if self._input.ndim == 2:
+            base = self._input[:, :6]
+        else:
+            base = self._input[:6]
+        self._output = np.clip(base, 0.0, 1.0).reshape(1, -1)
+
+    def get_tensor(self, index):
+        return self._output
+
 class YOLODetection(BaseModel):
     objects: list
     timestamp: float
@@ -52,6 +85,7 @@ class RobotController:
         self.serial_port = None
         self.serial_lock = Lock()
         self.init_serial()
+        self.send_arm_command()
         
         # MQTT
         self.mqtt_client = mqtt.Client()
@@ -64,17 +98,21 @@ class RobotController:
         self.joint_angles = np.zeros(6, dtype=np.float32)
         self.yolo_target = np.zeros(3, dtype=np.float32)
         self.last_detection_time = 0
+        self.last_serial_ack: Optional[str] = None
         
         # MQTT loop в окремому потоці
         mqtt_thread = Thread(target=self.mqtt_client.loop_forever, daemon=True)
         mqtt_thread.start()
         
         logger.info("✅ RobotController ініціалізовано")
-    
+
     def load_model(self):
         """Завантажити TFLite модель"""
         if DUMMY_MODEL:
-            logger.info("🔧 DUMMY_MODEL=1 - модель не завантажується")
+            logger.info("🔧 DUMMY_MODEL=1 - використовується dummy модель")
+            self.interpreter = DummyInterpreter()
+            self.input_details = self.interpreter.get_input_details()
+            self.output_details = self.interpreter.get_output_details()
             return
         
         try:
@@ -88,6 +126,16 @@ class RobotController:
         except Exception as e:
             logger.error(f"❌ Помилка завантаження моделі: {e}")
             raise
+
+    @staticmethod
+    def normalize_action(raw_action: np.ndarray) -> np.ndarray:
+        """Нормалізувати дії до діапазону 0.0-1.0"""
+        action = np.array(raw_action, dtype=np.float32).flatten()
+        if action.size < 6:
+            action = np.pad(action, (0, 6 - action.size))
+        action = action[:6]
+        action = (action + 1.0) / 2.0
+        return np.clip(action, 0.0, 1.0)
     
     def init_serial(self):
         """Ініціалізація Serial портом"""
@@ -104,6 +152,20 @@ class RobotController:
         except Exception as e:
             logger.error(f"❌ Serial помилка: {e}")
             raise
+
+    def send_arm_command(self) -> bool:
+        """Відправити ARM команду після підключення."""
+        if not self.serial_port:
+            return False
+
+        try:
+            with self.serial_lock:
+                self.serial_port.write(b'ARM\r\n')
+                logger.info("🦾 ARM команда відправлена")
+            return True
+        except Exception as e:
+            logger.error(f"❌ ARM send error: {e}")
+            return False
     
     def on_mqtt_message(self, client, userdata, msg):
         """Обробка YOLO детекцій"""
@@ -127,45 +189,46 @@ class RobotController:
     
     def predict(self, observation: np.ndarray) -> np.ndarray:
         """RL інференс"""
-        if DUMMY_MODEL:
-            # Повернути спостереження як є (тестування)
-            return observation[:6]
-        
         try:
             # Нормалізація
             obs = observation.reshape(1, -1).astype(np.float32)
-            
+
             # Інференс
             self.interpreter.set_tensor(
                 self.input_details[0]['index'],
                 obs
             )
             self.interpreter.invoke()
-            
+
             action = self.interpreter.get_tensor(
                 self.output_details[0]['index']
             )[0]
-            
-            return action
+            return self.normalize_action(action)
         except Exception as e:
             logger.error(f"❌ Inference error: {e}")
             return np.zeros(6, dtype=np.float32)
-    
+
     def send_action(self, action: np.ndarray) -> bool:
         """Відправка дії на Arduino"""
         if not self.serial_port:
             return False
-        
+
         try:
+            action_vec = np.array(action, dtype=np.float32).flatten()
+            if action_vec.size < 6:
+                action_vec = np.pad(action_vec, (0, 6 - action_vec.size))
+            action_vec = np.clip(action_vec[:6], 0.0, 1.0)
+            self.joint_angles = action_vec.copy()
+
             with self.serial_lock:
                 command = {
-                    "action": action.tolist(),
+                    "cmd": action_vec.tolist(),
                     "timestamp": time.time()
                 }
-                
+
                 json_str = json.dumps(command) + '\r\n'
                 self.serial_port.write(json_str.encode())
-                
+
                 # Очікування ACK
                 ack_timeout = 0.75
                 start = time.time()
@@ -177,38 +240,34 @@ class RobotController:
                         if ack:
                             break
                     time.sleep(0.05)
-                
+
                 if ack == "ACK":
                     logger.debug(f"✅ ACK отримано")
+                    self.last_serial_ack = ack
                     return True
                 else:
                     logger.warning(f"⚠️ Очікувалось ACK, отримано: {ack}")
+                    self.last_serial_ack = ack or None
                     return False
         except Exception as e:
             logger.error(f"❌ Serial send error: {e}")
             return False
-    
+
     def get_state(self) -> RobotState:
         """Отримати поточний стан"""
-        with self.serial_lock:
-            try:
-                self.serial_port.write(b'GET_STATE\r\n')
-                response = self.serial_port.readline().decode().strip()
-                
-                data = json.loads(response)
-                self.joint_angles = np.array(data.get("joint_positions", [0]*6), dtype=np.float32)
-                
-                return RobotState(
-                    joint_angles=self.joint_angles.tolist(),
-                    target_object={
-                        "x": self.yolo_target[0],
-                        "y": self.yolo_target[1],
-                        "confidence": self.yolo_target[2]
-                    } if self.yolo_target[2] > 0.5 else None
-                )
-            except Exception as e:
-                logger.error(f"❌ Get state error: {e}")
-                return RobotState(joint_angles=self.joint_angles.tolist())
+        try:
+            return RobotState(
+                joint_angles=self.joint_angles.tolist(),
+                target_object={
+                    "x": self.yolo_target[0],
+                    "y": self.yolo_target[1],
+                    "confidence": self.yolo_target[2]
+                } if self.yolo_target[2] > 0.5 else None,
+                serial_ack=self.last_serial_ack
+            )
+        except Exception as e:
+            logger.error(f"❌ Get state error: {e}")
+            return RobotState(joint_angles=self.joint_angles.tolist(), serial_ack=self.last_serial_ack)
     
     def control_loop(self):
         """Основний цикл керування"""
