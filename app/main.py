@@ -12,7 +12,7 @@ import tflite_runtime.interpreter as tflite
 import serial
 import paho.mqtt.client as mqtt
 import numpy as np
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Response
 from pydantic import BaseModel
 from typing import Optional
 from threading import Thread, Lock
@@ -26,8 +26,36 @@ SERIAL_DEV = os.getenv("SERIAL_DEV", "/dev/ttyACM0")
 MQTT_HOST = os.getenv("MQTT_HOST", "mqtt")
 MQTT_PORT = int(os.getenv("MQTT_PORT", 1883))
 DUMMY_MODEL = os.getenv("DUMMY_MODEL", "0") == "1"
+CAMERA_DEVICE = os.getenv("CAMERA_DEVICE", "/dev/video0")
+CAMERA_WIDTH = int(os.getenv("CAMERA_WIDTH", "640"))
+CAMERA_HEIGHT = int(os.getenv("CAMERA_HEIGHT", "480"))
 
 app = FastAPI(title="Robot Arm RL Controller")
+
+
+def capture_camera_frame() -> bytes:
+    """Отримати одиничний кадр з камери та повернути JPEG."""
+
+    import cv2
+
+    cap = cv2.VideoCapture(CAMERA_DEVICE)
+    cap.set(cv2.CAP_PROP_FRAME_WIDTH, CAMERA_WIDTH)
+    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, CAMERA_HEIGHT)
+
+    if not cap.isOpened():
+        raise RuntimeError(f"camera_unavailable:{CAMERA_DEVICE}")
+
+    ret, frame = cap.read()
+    cap.release()
+
+    if not ret or frame is None:
+        raise RuntimeError("camera_empty_frame")
+
+    ok, encoded = cv2.imencode(".jpg", frame)
+    if not ok:
+        raise RuntimeError("camera_encode_failed")
+
+    return encoded.tobytes()
 
 
 class DummyInterpreter:
@@ -402,13 +430,27 @@ async def healthz():
         "status": "ok",
         "model_loaded": controller.interpreter is not None,
         "serial_connected": controller.serial_port is not None,
-        "mqtt_connected": controller.mqtt_client._sock is not None
+        "mqtt_connected": controller.mqtt_client._sock is not None,
+        "camera_device": CAMERA_DEVICE,
+        "camera_resolution": [CAMERA_WIDTH, CAMERA_HEIGHT],
     }
 
 @app.get("/state")
 async def get_robot_state():
     """Отримати поточний стан"""
     return controller.get_state()
+
+@app.get("/camera/snapshot")
+async def camera_snapshot():
+    """Повернути останній кадр з камери у JPEG."""
+
+    try:
+        frame_bytes = capture_camera_frame()
+        return Response(content=frame_bytes, media_type="image/jpeg")
+    except Exception as exc:
+        logger.error("❌ Camera snapshot failed: %s", exc)
+        raise HTTPException(status_code=503, detail=str(exc))
+
 
 @app.post("/predict")
 async def predict(data: dict):

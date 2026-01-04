@@ -10,6 +10,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       curl \
       libgfortran5 \
       libopenblas0-pthread \
+      python3-opencv \
+      libopencv-dev \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
