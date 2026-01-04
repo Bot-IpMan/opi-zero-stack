@@ -195,15 +195,48 @@ class RobotController:
             logger.error(f"❌ Serial помилка: {e}")
             raise
 
-    def send_arm_command(self) -> bool:
+    def _read_ack(self, timeout: float = 0.75) -> str:
+        """Зчитати відповідь від контролера з таймаутом."""
+        if not self.serial_port:
+            return ""
+
+        start = time.time()
+        ack = ""
+
+        while time.time() - start < timeout:
+            if self.serial_port.in_waiting:
+                ack = self.serial_port.readline().decode(errors="ignore").strip()
+                if ack:
+                    break
+            time.sleep(0.05)
+
+        return ack
+
+    def send_arm_command(self, wait_for_ack: bool = False) -> bool:
         """Відправити ARM команду після підключення."""
         if not self.serial_port:
             return False
 
         try:
             with self.serial_lock:
+                self.serial_port.reset_input_buffer()
                 self.serial_port.write(b'ARM\r\n')
                 logger.info("🦾 ARM команда відправлена")
+
+                ack = self._read_ack() if wait_for_ack else ""
+
+            if wait_for_ack:
+                if ack == "ACK":
+                    logger.info("✅ Робот армінований")
+                    self.last_serial_ack = ack
+                    return True
+                if ack:
+                    logger.warning(f"⚠️ ARM відповідь: {ack}")
+                    self.last_serial_ack = ack
+                    return False
+                logger.warning("⚠️ ARM без відповіді")
+                return False
+
             return True
         except Exception as e:
             logger.error(f"❌ ARM send error: {e}")
@@ -261,6 +294,7 @@ class RobotController:
             action_vec = np.clip(action_vec[:6], 0.0, 1.0)
             self.joint_angles = action_vec.copy()
 
+            ack = ""
             with self.serial_lock:
                 command = {
                     "cmd": action_vec.tolist(),
@@ -270,26 +304,28 @@ class RobotController:
                 json_str = json.dumps(command) + '\r\n'
                 self.serial_port.write(json_str.encode())
 
-                # Очікування ACK
-                ack_timeout = 0.75
-                start = time.time()
-                ack = ""
-                
-                while time.time() - start < ack_timeout:
-                    if self.serial_port.in_waiting:
-                        ack = self.serial_port.readline().decode().strip()
-                        if ack:
-                            break
-                    time.sleep(0.05)
+                ack = self._read_ack()
 
-                if ack == "ACK":
-                    logger.debug(f"✅ ACK отримано")
-                    self.last_serial_ack = ack
-                    return True
-                else:
-                    logger.warning(f"⚠️ Очікувалось ACK, отримано: {ack}")
-                    self.last_serial_ack = ack or None
-                    return False
+            if ack == "ACK":
+                logger.debug(f"✅ ACK отримано")
+                self.last_serial_ack = ack
+                return True
+
+            if ack == "ERR not_armed":
+                self.last_serial_ack = ack
+                logger.warning("🤖 Робот не армінований, повторна ARM команда")
+                self.send_arm_command(wait_for_ack=True)
+                return False
+
+            if ack and ack != self.last_serial_ack:
+                logger.warning(f"⚠️ Очікувалось ACK, отримано: {ack}")
+            elif ack:
+                logger.debug(f"⚠️ Повторна відповідь без ACK: {ack}")
+            else:
+                logger.warning("⚠️ ACK не отримано")
+
+            self.last_serial_ack = ack or None
+            return False
         except Exception as e:
             logger.error(f"❌ Serial send error: {e}")
             return False
