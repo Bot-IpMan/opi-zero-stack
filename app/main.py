@@ -79,8 +79,10 @@ class RobotController:
         self.interpreter = None
         self.input_details = None
         self.output_details = None
+        self.input_shape: tuple[int, ...] = ()
+        self.expected_features: int = 0
         self.load_model()
-        
+
         # Serial комунікація
         self.serial_port = None
         self.serial_lock = Lock()
@@ -92,9 +94,9 @@ class RobotController:
         self.mqtt_client.on_message = self.on_mqtt_message
         self.mqtt_client.connect(MQTT_HOST, MQTT_PORT, 60)
         self.mqtt_client.subscribe("arm/vision/objects")
-        
+
         # Стан
-        self.current_state = np.zeros(9, dtype=np.float32)  # [joints(6), yolo(3)]
+        self.current_state = np.zeros(self.expected_features, dtype=np.float32)
         self.joint_angles = np.zeros(6, dtype=np.float32)
         self.yolo_target = np.zeros(3, dtype=np.float32)
         self.last_detection_time = 0
@@ -113,19 +115,59 @@ class RobotController:
             self.interpreter = DummyInterpreter()
             self.input_details = self.interpreter.get_input_details()
             self.output_details = self.interpreter.get_output_details()
+            self._update_input_metadata()
             return
         
         try:
             self.interpreter = tflite.Interpreter(model_path=MODEL_PATH)
             self.interpreter.allocate_tensors()
-            
+
             self.input_details = self.interpreter.get_input_details()
             self.output_details = self.interpreter.get_output_details()
-            
+            self._update_input_metadata()
+
             logger.info(f"✅ Модель завантажена: {MODEL_PATH}")
         except Exception as e:
             logger.error(f"❌ Помилка завантаження моделі: {e}")
             raise
+
+    def _update_input_metadata(self):
+        self.input_shape = tuple(int(x) for x in self.input_details[0]["shape"])
+        batch_dim = self.input_shape[0] if self.input_shape else 1
+        total_size = int(np.prod(self.input_shape)) if self.input_shape else 0
+        self.expected_features = total_size // max(1, batch_dim)
+        if self.expected_features == 0:
+            self.expected_features = 9  # Фолбек до попереднього формату
+        logger.info(
+            "🧮 Model input shape: %s (%d features)",
+            self.input_shape,
+            self.expected_features,
+        )
+
+    def _fit_observation(self, observation: np.ndarray) -> np.ndarray:
+        """Привести спостереження до розміру, який очікує модель."""
+        obs = np.array(observation, dtype=np.float32).flatten()
+        if obs.size < self.expected_features:
+            obs = np.pad(obs, (0, self.expected_features - obs.size))
+        elif obs.size > self.expected_features:
+            logger.debug(
+                "✂️ Trimming observation from %d to %d features", obs.size, self.expected_features
+            )
+            obs = obs[:self.expected_features]
+        return obs
+
+    def _prepare_model_input(self, observation: np.ndarray) -> np.ndarray:
+        obs = self._fit_observation(observation)
+        try:
+            return obs.reshape(self.input_shape)
+        except Exception:
+            return obs.reshape(1, -1)
+
+    def _compose_observation(self) -> np.ndarray:
+        base_obs = np.concatenate([self.joint_angles, self.yolo_target])
+        fitted_obs = self._fit_observation(base_obs)
+        self.current_state = fitted_obs
+        return fitted_obs
 
     @staticmethod
     def normalize_action(raw_action: np.ndarray) -> np.ndarray:
@@ -190,8 +232,7 @@ class RobotController:
     def predict(self, observation: np.ndarray) -> np.ndarray:
         """RL інференс"""
         try:
-            # Нормалізація
-            obs = observation.reshape(1, -1).astype(np.float32)
+            obs = self._prepare_model_input(observation)
 
             # Інференс
             self.interpreter.set_tensor(
@@ -279,13 +320,12 @@ class RobotController:
         while True:
             try:
                 start = time.time()
-                
+
                 # Оновлення спостереження
-                self.current_state[:6] = self.joint_angles
-                self.current_state[6:9] = self.yolo_target
-                
+                obs_vector = self._compose_observation()
+
                 # RL інференс
-                action = self.predict(self.current_state)
+                action = self.predict(obs_vector)
                 
                 # Відправка на Arduino
                 success = self.send_action(action)
@@ -341,11 +381,12 @@ async def predict(data: dict):
     Input: {"x": [6 joint angles або 9: joints+yolo]}
     """
     try:
-        obs = np.array(data.get("x", [0]*9), dtype=np.float32)
+        obs = np.array(data.get("x", [0] * controller.expected_features), dtype=np.float32)
         if len(obs) == 6:
             # Доповнити YOLO даними
             obs = np.concatenate([obs, controller.yolo_target])
-        
+        obs = controller._fit_observation(obs)
+
         action = controller.predict(obs)
         success = controller.send_action(action)
         
